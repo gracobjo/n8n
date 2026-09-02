@@ -1,0 +1,25 @@
+✅ Google Cloud Console:
+   - Crear proyecto
+   - Habilitar Gmail API y Sheets API
+   - Configurar OAuth2 (pantalla de consentimiento + credenciales)
+   - URI: http://localhost:5678/rest/oauth2-credential/callback
+   - Añadir tu email como usuario de prueba
+
+✅ n8n Credentials:
+   - Gmail account (Gmail OAuth2 API)
+   - Google account (Google OAuth2 API - genérica)
+
+✅ Workflow:
+   - Nodo 1: Gmail Trigger (filtrar por UNREAD)
+   - Nodo 2: Google Sheets (Append)
+   - Mapear columnas con expresiones
+   - Publicar workflow
+
+✅ Expresiones clave:
+   - Fecha: {{ new Date(parseInt($json.internalDate)).toLocaleString('es-ES') }}
+   - Contenido: {{ $json.snippet.replace(/&#39;/g, "'")... }}
+
+✅ Prueba:
+   - Enviar email de prueba
+   - Esperar 1-2 min
+   - Verificar en Google Sheets
