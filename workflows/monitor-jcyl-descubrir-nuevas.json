@@ -1,0 +1,163 @@
+{
+  "name": "Monitor JCyL — Descubrir nuevas convocatorias",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "daysInterval": 1,
+              "triggerAtHour": 8,
+              "triggerAtMinute": 0
+            }
+          ]
+        }
+      },
+      "id": "sched-disc-001",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "url": "https://empleopublico.jcyl.es/web/es/empleo-publico/empleo-publico.html",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          }
+        }
+      },
+      "id": "http-listado-001",
+      "name": "Empleo publico al dia",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const html = $input.first().json.data ?? '';\nconst base = 'https://empleopublico.jcyl.es';\n\nfunction absolutizar(href) {\n  let url = href.replace(/&amp;/g, '&').trim();\n  if (url.startsWith('http')) return url.split('#')[0];\n  if (url.startsWith('/')) return `${base}${url.split('#')[0]}`;\n  return `${base}/${url.split('#')[0]}`;\n}\n\nconst convocatorias = new Map();\n\nconst regexEnlace =\n  /<a[^>]+href=\"([^\"]*Plantilla100Detalle\\/\\d+\\/Convocatoria\\/\\d+\\/Empleo[^\"]*)\"[^>]*>([\\s\\S]*?)<\\/a>/gi;\n\nlet match;\nwhile ((match = regexEnlace.exec(html)) !== null) {\n  const url = absolutizar(match[1]);\n  const titulo = match[2]\n    .replace(/<[^>]+>/g, ' ')\n    .replace(/\\s+/g, ' ')\n    .trim();\n  if (!convocatorias.has(url)) {\n    convocatorias.set(url, titulo || 'Convocatoria JCyL');\n  }\n}\n\nif (convocatorias.size === 0) {\n  throw new Error('No se encontraron enlaces de convocatoria en Empleo público al día.');\n}\n\nreturn [...convocatorias.entries()].map(([url, titulo]) => ({\n  json: { url, titulo, origen: 'Empleo público al día' },\n}));"
+      },
+      "id": "code-parse-001",
+      "name": "Extraer enlaces JCyL",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "url",
+          "value": "PEGAR_URL_DE_TU_HOJA_GOOGLE_SHEETS"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Control Convocatorias JCyL"
+        },
+        "options": {}
+      },
+      "id": "sheets-read-disc-001",
+      "name": "Leer hoja control",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [900, 300],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REEMPLAZAR_ID_CREDENCIAL",
+          "name": "Google account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "function parseKeywords(text) {\n  if (!text || String(text).trim() === '') return [];\n  return String(text)\n    .split(/[,;|\\n]+/)\n    .map((k) => k.trim().toLowerCase())\n    .filter((k) => k.length >= 2);\n}\n\nfunction normalize(str) {\n  return String(str)\n    .toLowerCase()\n    .normalize('NFD')\n    .replace(/[\\u0300-\\u036f]/g, '');\n}\n\nfunction matchesKeyword(titulo, keywords) {\n  const hay = normalize(titulo);\n  for (const kw of keywords) {\n    if (hay.includes(normalize(kw))) return kw;\n  }\n  return null;\n}\n\nconst enlaces = $('Extraer enlaces JCyL').all().map((i) => i.json);\nconst filas = $input.all().map((i) => i.json);\n\nconst urlsConocidas = new Set(\n  filas.map((f) => String(f.URL ?? '').trim()).filter(Boolean),\n);\n\nconst filaFiltro = filas.find(\n  (f) =>\n    String(f.Nombre ?? '').trim().toLowerCase() === '_descubrimiento' &&\n    !String(f.URL ?? '').trim(),\n);\n\nlet keywords = [];\nif (filaFiltro?.Palabras_clave) {\n  keywords = parseKeywords(filaFiltro.Palabras_clave);\n} else {\n  const set = new Set();\n  for (const f of filas) {\n    for (const k of parseKeywords(f.Palabras_clave)) set.add(k);\n  }\n  keywords = [...set];\n}\n\nconst filtrarPorKeywords = keywords.length > 0;\nconst nuevas = [];\n\nfor (const item of enlaces) {\n  if (urlsConocidas.has(item.url)) continue;\n\n  if (filtrarPorKeywords) {\n    const match = matchesKeyword(item.titulo, keywords);\n    if (!match) continue;\n    nuevas.push({ ...item, palabraCoincidente: match });\n  } else {\n    nuevas.push({ ...item, palabraCoincidente: null });\n  }\n}\n\nif (nuevas.length === 0) {\n  return [\n    {\n      json: {\n        hayNuevas: false,\n        totalEncontradas: enlaces.length,\n        totalNuevas: 0,\n        filtrarPorKeywords,\n        keywordsActivas: keywords.join(', '),\n        ahora: new Date().toLocaleString('es-ES'),\n      },\n    },\n  ];\n}\n\nreturn nuevas.map((item) => ({\n  json: {\n    hayNuevas: true,\n    url: item.url,\n    titulo: item.titulo,\n    origen: item.origen,\n    palabraCoincidente: item.palabraCoincidente,\n    keywordsActivas: keywords.join(', '),\n    ahora: new Date().toLocaleString('es-ES'),\n  },\n}));"
+      },
+      "id": "code-diff-001",
+      "name": "Detectar nuevas",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-nuevas",
+              "leftValue": "={{ $json.hayNuevas }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-disc-001",
+      "name": "IF hay nuevas",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1340, 300]
+    },
+    {
+      "parameters": {
+        "sendTo": "tu-correo@gmail.com",
+        "subject": "=[JCyL] Nueva convocatoria detectada — {{ $json.titulo }}",
+        "emailType": "text",
+        "message": "=Se ha detectado una convocatoria de JCyL que NO está en tu hoja de control.\n\nTítulo: {{ $json.titulo }}\nURL: {{ $json.url }}\nPalabra clave coincidente: {{ $json.palabraCoincidente }}\nFiltros activos: {{ $json.keywordsActivas }}\nOrigen: {{ $json.origen }}\nDetectado: {{ $json.ahora }}\n\nAcción recomendada:\n1. Revisa la convocatoria en el navegador.\n2. Si quieres monitorizarla, añade una fila en Google Sheets con Activo=SI.\n3. Deja Ultima_Fecha_Extraida = Pendiente.",
+        "options": {}
+      },
+      "id": "gmail-disc-001",
+      "name": "Gmail nueva convocatoria",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [1560, 200],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "REEMPLAZAR_ID_CREDENCIAL",
+          "name": "Gmail account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [[{ "node": "Empleo publico al dia", "type": "main", "index": 0 }]]
+    },
+    "Empleo publico al dia": {
+      "main": [[{ "node": "Extraer enlaces JCyL", "type": "main", "index": 0 }]]
+    },
+    "Extraer enlaces JCyL": {
+      "main": [[{ "node": "Leer hoja control", "type": "main", "index": 0 }]]
+    },
+    "Leer hoja control": {
+      "main": [[{ "node": "Detectar nuevas", "type": "main", "index": 0 }]]
+    },
+    "Detectar nuevas": {
+      "main": [[{ "node": "IF hay nuevas", "type": "main", "index": 0 }]]
+    },
+    "IF hay nuevas": {
+      "main": [[{ "node": "Gmail nueva convocatoria", "type": "main", "index": 0 }], []]
+    }
+  },
+  "pinData": {},
+  "settings": { "executionOrder": "v1" },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 1
+}

@@ -1,0 +1,225 @@
+{
+  "name": "Monitor JCyL — Multi convocatorias",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 12,
+              "triggerAtMinute": 0
+            }
+          ]
+        }
+      },
+      "id": "sched-001",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 360]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "url",
+          "value": "PEGAR_URL_DE_TU_HOJA_GOOGLE_SHEETS"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Control Convocatorias JCyL"
+        },
+        "options": {}
+      },
+      "id": "sheets-read-001",
+      "name": "Leer todas las convocatorias",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [460, 360],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REEMPLAZAR_ID_CREDENCIAL",
+          "name": "Google account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const rows = $input.all().map((item) => item.json);\n\nconst activas = rows.filter((row) => {\n  if (!row.URL || String(row.URL).trim() === '') return false;\n  const activo = String(row.Activo ?? 'SI').trim().toUpperCase();\n  return activo === 'SI' || activo === 'SÍ' || activo === 'TRUE' || activo === '1';\n});\n\nif (activas.length === 0) {\n  throw new Error('No hay convocatorias activas en la hoja. Añade filas con Activo=SI y una URL.');\n}\n\nreturn activas.map((row) => ({ json: row }));"
+      },
+      "id": "code-filter-001",
+      "name": "Filtrar activas",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 360]
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "split-001",
+      "name": "Iterar convocatorias",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [900, 360]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.URL }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          }
+        }
+      },
+      "id": "http-001",
+      "name": "HTTP Request",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1120, 360]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const fila = $('Iterar convocatorias').item.json;\nconst url = String(fila.URL ?? '').trim();\nconst nombre = String(fila.Nombre ?? 'Convocatoria JCyL').trim();\n\nconst html =\n  $input.first().json.data ??\n  $input.first().json.body ??\n  '';\n\nfunction stripHtml(text) {\n  return String(text)\n    .replace(/<[^>]+>/g, ' ')\n    .replace(/&nbsp;/g, ' ')\n    .replace(/\\s+/g, ' ')\n    .trim();\n}\n\nconst campos = [];\nconst regexHtml = /<strong>([^<:]+):<\\/strong>\\s*([^<]*)/gi;\nlet match;\n\nwhile ((match = regexHtml.exec(html)) !== null) {\n  const etiqueta = stripHtml(match[1]);\n  const valor = stripHtml(match[2]);\n  if (!etiqueta || !valor) continue;\n  if (/fecha|plazo|límite|publicación|información adicional/i.test(etiqueta)) {\n    campos.push(`${etiqueta}: ${valor}`);\n  }\n}\n\nif (campos.length === 0) {\n  const regexMarkdown = /\\*\\*([^*]+):\\*\\*\\s*([^\\n*]+)/g;\n  while ((match = regexMarkdown.exec(html)) !== null) {\n    const etiqueta = match[1].trim();\n    const valor = match[2].trim();\n    if (/fecha|plazo|límite|publicación|información adicional/i.test(etiqueta)) {\n      campos.push(`${etiqueta}: ${valor}`);\n    }\n  }\n}\n\nconst estadoActual =\n  campos.length > 0 ? campos.join(' | ') : 'No se encontraron fechas';\n\nconst estadoAnterior =\n  fila.Ultima_Fecha_Extraida ??\n  fila['Ultima_Fecha_Extraida'] ??\n  'Pendiente';\n\nconst esBaseline =\n  estadoAnterior === 'Pendiente' || String(estadoAnterior).trim() === '';\nconst cambio = !esBaseline && estadoAnterior !== estadoActual;\n\nreturn [\n  {\n    json: {\n      url,\n      titulo: nombre,\n      estadoActual,\n      estadoAnterior,\n      cambio,\n      esBaseline,\n      ahora: new Date().toLocaleString('es-ES'),\n      row_number: fila.row_number,\n    },\n  },\n];"
+      },
+      "id": "code-compare-001",
+      "name": "Extraer y comparar",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 360]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-cambio",
+              "leftValue": "={{ $json.cambio }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-001",
+      "name": "IF cambio",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1560, 360]
+    },
+    {
+      "parameters": {
+        "sendTo": "tu-correo@gmail.com",
+        "subject": "=[JCyL] Cambio — {{ $json.titulo }}",
+        "emailType": "text",
+        "message": "=Se detectó un cambio en una convocatoria de empleo público de JCyL.\n\nConvocatoria: {{ $json.titulo }}\nURL: {{ $json.url }}\nComprobado: {{ $json.ahora }}\n\n--- ESTADO ANTERIOR ---\n{{ $json.estadoAnterior }}\n\n--- ESTADO ACTUAL ---\n{{ $json.estadoActual }}\n\nRevisa la página para ver el detalle.",
+        "options": {}
+      },
+      "id": "gmail-001",
+      "name": "Gmail alerta",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [1780, 260],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "REEMPLAZAR_ID_CREDENCIAL",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "mode": "url",
+          "value": "PEGAR_URL_DE_TU_HOJA_GOOGLE_SHEETS"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Control Convocatorias JCyL"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "row_number": "={{ $('Extraer y comparar').item.json.row_number }}",
+            "Ultima_Fecha_Extraida": "={{ $('Extraer y comparar').item.json.estadoActual }}",
+            "Ultima_Comprobacion": "={{ $('Extraer y comparar').item.json.ahora }}"
+          },
+          "matchingColumns": ["row_number"],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "sheets-update-001",
+      "name": "Actualizar fila",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [2000, 360],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REEMPLAZAR_ID_CREDENCIAL",
+          "name": "Google account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [[{ "node": "Leer todas las convocatorias", "type": "main", "index": 0 }]]
+    },
+    "Leer todas las convocatorias": {
+      "main": [[{ "node": "Filtrar activas", "type": "main", "index": 0 }]]
+    },
+    "Filtrar activas": {
+      "main": [[{ "node": "Iterar convocatorias", "type": "main", "index": 0 }]]
+    },
+    "Iterar convocatorias": {
+      "main": [
+        [],
+        [{ "node": "HTTP Request", "type": "main", "index": 0 }]
+      ]
+    },
+    "HTTP Request": {
+      "main": [[{ "node": "Extraer y comparar", "type": "main", "index": 0 }]]
+    },
+    "Extraer y comparar": {
+      "main": [[{ "node": "IF cambio", "type": "main", "index": 0 }]]
+    },
+    "IF cambio": {
+      "main": [
+        [{ "node": "Gmail alerta", "type": "main", "index": 0 }],
+        [{ "node": "Actualizar fila", "type": "main", "index": 0 }]
+      ]
+    },
+    "Gmail alerta": {
+      "main": [[{ "node": "Actualizar fila", "type": "main", "index": 0 }]]
+    },
+    "Actualizar fila": {
+      "main": [[{ "node": "Iterar convocatorias", "type": "main", "index": 0 }]]
+    }
+  },
+  "pinData": {},
+  "settings": { "executionOrder": "v1" },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 1
+}
