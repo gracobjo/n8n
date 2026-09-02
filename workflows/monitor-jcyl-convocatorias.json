@@ -17,7 +17,10 @@
       "name": "Schedule Trigger",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
-      "position": [240, 360]
+      "position": [
+        240,
+        360
+      ]
     },
     {
       "parameters": {
@@ -37,7 +40,10 @@
       "name": "Leer todas las convocatorias",
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4.5,
-      "position": [460, 360],
+      "position": [
+        460,
+        360
+      ],
       "credentials": {
         "googleSheetsOAuth2Api": {
           "id": "REEMPLAZAR_ID_CREDENCIAL",
@@ -54,7 +60,10 @@
       "name": "Filtrar activas",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [680, 360]
+      "position": [
+        680,
+        360
+      ]
     },
     {
       "parameters": {
@@ -65,7 +74,10 @@
       "name": "Iterar convocatorias",
       "type": "n8n-nodes-base.splitInBatches",
       "typeVersion": 3,
-      "position": [900, 360]
+      "position": [
+        900,
+        360
+      ]
     },
     {
       "parameters": {
@@ -82,18 +94,24 @@
       "name": "HTTP Request",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1120, 360]
+      "position": [
+        1120,
+        360
+      ]
     },
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const fila = $('Iterar convocatorias').item.json;\nconst url = String(fila.URL ?? '').trim();\nconst nombre = String(fila.Nombre ?? 'Convocatoria JCyL').trim();\n\nconst html =\n  $input.first().json.data ??\n  $input.first().json.body ??\n  '';\n\nfunction stripHtml(text) {\n  return String(text)\n    .replace(/<[^>]+>/g, ' ')\n    .replace(/&nbsp;/g, ' ')\n    .replace(/\\s+/g, ' ')\n    .trim();\n}\n\nconst campos = [];\nconst regexHtml = /<strong>([^<:]+):<\\/strong>\\s*([^<]*)/gi;\nlet match;\n\nwhile ((match = regexHtml.exec(html)) !== null) {\n  const etiqueta = stripHtml(match[1]);\n  const valor = stripHtml(match[2]);\n  if (!etiqueta || !valor) continue;\n  if (/fecha|plazo|límite|publicación|información adicional/i.test(etiqueta)) {\n    campos.push(`${etiqueta}: ${valor}`);\n  }\n}\n\nif (campos.length === 0) {\n  const regexMarkdown = /\\*\\*([^*]+):\\*\\*\\s*([^\\n*]+)/g;\n  while ((match = regexMarkdown.exec(html)) !== null) {\n    const etiqueta = match[1].trim();\n    const valor = match[2].trim();\n    if (/fecha|plazo|límite|publicación|información adicional/i.test(etiqueta)) {\n      campos.push(`${etiqueta}: ${valor}`);\n    }\n  }\n}\n\nconst estadoActual =\n  campos.length > 0 ? campos.join(' | ') : 'No se encontraron fechas';\n\nconst estadoAnterior =\n  fila.Ultima_Fecha_Extraida ??\n  fila['Ultima_Fecha_Extraida'] ??\n  'Pendiente';\n\nconst esBaseline =\n  estadoAnterior === 'Pendiente' || String(estadoAnterior).trim() === '';\nconst cambio = !esBaseline && estadoAnterior !== estadoActual;\n\nreturn [\n  {\n    json: {\n      url,\n      titulo: nombre,\n      estadoActual,\n      estadoAnterior,\n      cambio,\n      esBaseline,\n      ahora: new Date().toLocaleString('es-ES'),\n      row_number: fila.row_number,\n    },\n  },\n];"
+        "jsCode": "// Pegar en nodo \"Extraer y comparar\" (Run Once for All Items)\r\nconst fila = $('Iterar convocatorias').item.json;\r\nconst url = String(fila.URL ?? '').trim();\r\nconst nombre = String(fila.Nombre ?? 'Convocatoria JCyL').trim();\r\n\r\nconst html =\r\n  $input.first().json.data ??\r\n  $input.first().json.body ??\r\n  '';\r\n\r\nconst ENTITY_MAP = {\r\n  nbsp: ' ',\r\n  amp: '&',\r\n  lt: '<',\r\n  gt: '>',\r\n  quot: '\"',\r\n  apos: \"'\",\r\n  ordm: 'º',\r\n  oacute: 'ó',\r\n  aacute: 'á',\r\n  eacute: 'é',\r\n  iacute: 'í',\r\n  uacute: 'ú',\r\n  ntilde: 'ñ',\r\n};\r\n\r\nfunction decodeEntities(text) {\r\n  let s = String(text);\r\n  s = s.replace(/&#(\\d+);/g, (_, n) => String.fromCharCode(Number(n)));\r\n  s = s.replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCharCode(parseInt(h, 16)));\r\n  s = s.replace(/&([a-zA-Z]+);/g, (entity, name) => {\r\n    const decoded = ENTITY_MAP[name.toLowerCase()];\r\n    return decoded ?? entity;\r\n  });\r\n  return s;\r\n}\r\n\r\nfunction stripHtml(text) {\r\n  return decodeEntities(\r\n    String(text)\r\n      .replace(/<[^>]+>/g, ' ')\r\n      .replace(/\\s+/g, ' ')\r\n      .trim(),\r\n  );\r\n}\r\n\r\nfunction extractEstadoFromHtml(sourceHtml, origen = 'principal') {\r\n  const campos = [];\r\n  const seen = new Set();\r\n\r\n  const add = (etiqueta, valor, maxLen = 220) => {\r\n    const e = stripHtml(etiqueta).replace(/:+$/, '').trim();\r\n    let v = stripHtml(valor).replace(/^:+\\s*/, '').trim();\r\n    if (!e || !v) return;\r\n    if (v.length > maxLen) v = `${v.slice(0, maxLen)}…`;\r\n    const key = `${e}: ${v}`;\r\n    if (seen.has(key)) return;\r\n    seen.add(key);\r\n    campos.push(key);\r\n  };\r\n\r\n  // Página principal: agrupar por sección <h2>\r\n  const sectionRegex = /<h2[^>]*>([^<]+)<\\/h2>([\\s\\S]*?)(?=<h2|<\\/main|$)/gi;\r\n  let sectionMatch;\r\n  while ((sectionMatch = sectionRegex.exec(sourceHtml)) !== null) {\r\n    const section = stripHtml(sectionMatch[1]);\r\n    const block = sectionMatch[2];\r\n    const regexHtml = /<strong>([^<:]+):<\\/strong>\\s*([^<]*)/gi;\r\n    let match;\r\n    while ((match = regexHtml.exec(block)) !== null) {\r\n      if (/fecha|plazo|límite|publicación|información adicional/i.test(match[1])) {\r\n        add(`${section} — ${match[1]}`, match[2]);\r\n      }\r\n    }\r\n  }\r\n\r\n  // Fallback principal sin h2\r\n  if (origen === 'principal' && campos.length === 0) {\r\n    const regexHtml = /<strong>([^<:]+):<\\/strong>\\s*([^<]*)/gi;\r\n    let match;\r\n    while ((match = regexHtml.exec(sourceHtml)) !== null) {\r\n      if (/fecha|plazo|límite|publicación|información adicional/i.test(match[1])) {\r\n        add(match[1], match[2]);\r\n      }\r\n    }\r\n  }\r\n\r\n  // Página de fase: solo bloques útiles (sin resolución completa)\r\n  if (origen === 'fase') {\r\n    const regexH2 = /<h2[^>]*>([^<]+)<\\/h2>\\s*([\\s\\S]*?)(?=<h2|<\\/main|$)/gi;\r\n    let match;\r\n    while ((match = regexH2.exec(sourceHtml)) !== null) {\r\n      const titulo = stripHtml(match[1]);\r\n      const cuerpo = match[2].replace(/<script[\\s\\S]*?<\\/script>/gi, '');\r\n\r\n      if (/convocatoria a la que pertenece/i.test(titulo)) continue;\r\n\r\n      if (/contenido publicado el/i.test(titulo)) {\r\n        add(\r\n          'Contenido publicado el',\r\n          titulo.replace(/contenido publicado el\\s*/i, ''),\r\n        );\r\n        continue;\r\n      }\r\n\r\n      if (/^fecha límite$/i.test(titulo) || /^información adicional$/i.test(titulo)) {\r\n        add(titulo, cuerpo, 180);\r\n      }\r\n    }\r\n\r\n    const textoPlano = stripHtml(sourceHtml);\r\n    const ejercicioMatch = textoPlano.match(\r\n      /Convocar[\\s\\S]{0,400}?(\\d{1,2}\\s+de\\s+[a-záéíóúñ]+\\s+de\\s+\\d{4}\\s+a\\s+las\\s+\\d{1,2}:\\d{2})/i,\r\n    );\r\n    if (ejercicioMatch) add('Fecha segundo ejercicio', ejercicioMatch[1], 80);\r\n\r\n    const pubMatch = textoPlano.match(/Contenido publicado el\\s+(\\d{1,2}\\s+de\\s+[a-záéíóúñ]+\\s+de\\s+\\d{4})/i);\r\n    if (pubMatch) add('Contenido publicado el', pubMatch[1], 40);\r\n  }\r\n\r\n  if (campos.length === 0) return `[${origen}] No se encontraron fechas`;\r\n  return `[${origen}] ${campos.join(' | ')}`;\r\n}\r\n\r\nconst partes = [extractEstadoFromHtml(html, 'principal')];\r\n\r\nconst adicionales = String(fila.URLs_Adicionales ?? fila['URLs_Adicionales'] ?? '')\r\n  .split(';')\r\n  .map((u) => u.trim())\r\n  .filter(Boolean);\r\n\r\nconst httpRequest = this.helpers.httpRequest.bind(this.helpers);\r\n\r\nfor (const extraUrl of adicionales) {\r\n  try {\r\n    const extraHtml = await httpRequest({\r\n      method: 'GET',\r\n      url: extraUrl,\r\n      returnFullResponse: false,\r\n    });\r\n    const body =\r\n      typeof extraHtml === 'string'\r\n        ? extraHtml\r\n        : (extraHtml?.data ?? extraHtml?.body ?? String(extraHtml ?? ''));\r\n    partes.push(extractEstadoFromHtml(body, 'fase'));\r\n  } catch {\r\n    partes.push('[fase] Error al leer URL adicional');\r\n  }\r\n}\r\n\r\nconst estadoActual = partes.join(' || ');\r\n\r\nconst estadoAnterior =\r\n  fila.Ultima_Fecha_Extraida ??\r\n  fila['Ultima_Fecha_Extraida'] ??\r\n  'Pendiente';\r\n\r\nfunction normalizeEstadoForCompare(text) {\r\n  return String(text)\r\n    .replace(/\\[principal\\]\\s*/gi, '')\r\n    .replace(/\\[fase\\]\\s*/gi, '')\r\n    .replace(/\\s*\\|\\|\\s*/g, ' | ')\r\n    .replace(/::+/g, ':')\r\n    .replace(/\\s+/g, ' ')\r\n    .trim()\r\n    .toLowerCase();\r\n}\r\n\r\nconst esBaseline =\r\n  estadoAnterior === 'Pendiente' || String(estadoAnterior).trim() === '';\r\nconst cambio =\r\n  !esBaseline &&\r\n  normalizeEstadoForCompare(estadoAnterior) !==\r\n    normalizeEstadoForCompare(estadoActual);\r\n\r\nreturn [\r\n  {\r\n    json: {\r\n      url,\r\n      titulo: nombre,\r\n      estadoActual,\r\n      estadoAnterior,\r\n      cambio,\r\n      esBaseline,\r\n      ahora: new Date().toLocaleString('es-ES'),\r\n      row_number: fila.row_number,\r\n    },\r\n  },\r\n];\r\n"
       },
       "id": "code-compare-001",
       "name": "Extraer y comparar",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1340, 360]
+      "position": [
+        1340,
+        360
+      ]
     },
     {
       "parameters": {
@@ -122,7 +140,10 @@
       "name": "IF cambio",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [1560, 360]
+      "position": [
+        1560,
+        360
+      ]
     },
     {
       "parameters": {
@@ -136,7 +157,10 @@
       "name": "Gmail alerta",
       "type": "n8n-nodes-base.gmail",
       "typeVersion": 2.1,
-      "position": [1780, 260],
+      "position": [
+        1780,
+        260
+      ],
       "credentials": {
         "gmailOAuth2": {
           "id": "REEMPLAZAR_ID_CREDENCIAL",
@@ -164,7 +188,9 @@
             "Ultima_Fecha_Extraida": "={{ $('Extraer y comparar').item.json.estadoActual }}",
             "Ultima_Comprobacion": "={{ $('Extraer y comparar').item.json.ahora }}"
           },
-          "matchingColumns": ["row_number"],
+          "matchingColumns": [
+            "row_number"
+          ],
           "schema": []
         },
         "options": {}
@@ -173,7 +199,10 @@
       "name": "Actualizar fila",
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4.5,
-      "position": [2000, 360],
+      "position": [
+        2000,
+        360
+      ],
       "credentials": {
         "googleSheetsOAuth2Api": {
           "id": "REEMPLAZAR_ID_CREDENCIAL",
@@ -184,41 +213,117 @@
   ],
   "connections": {
     "Schedule Trigger": {
-      "main": [[{ "node": "Leer todas las convocatorias", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Leer todas las convocatorias",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Leer todas las convocatorias": {
-      "main": [[{ "node": "Filtrar activas", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Filtrar activas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Filtrar activas": {
-      "main": [[{ "node": "Iterar convocatorias", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Iterar convocatorias",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Iterar convocatorias": {
       "main": [
         [],
-        [{ "node": "HTTP Request", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "HTTP Request": {
-      "main": [[{ "node": "Extraer y comparar", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Extraer y comparar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Extraer y comparar": {
-      "main": [[{ "node": "IF cambio", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "IF cambio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "IF cambio": {
       "main": [
-        [{ "node": "Gmail alerta", "type": "main", "index": 0 }],
-        [{ "node": "Actualizar fila", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Gmail alerta",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Actualizar fila",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Gmail alerta": {
-      "main": [[{ "node": "Actualizar fila", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Actualizar fila",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Actualizar fila": {
-      "main": [[{ "node": "Iterar convocatorias", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Iterar convocatorias",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "pinData": {},
-  "settings": { "executionOrder": "v1" },
+  "settings": {
+    "executionOrder": "v1"
+  },
   "staticData": null,
   "tags": [],
   "triggerCount": 1

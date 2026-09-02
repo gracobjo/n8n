@@ -80,14 +80,15 @@ Crea un Google Sheet: **Control Convocatorias JCyL**.
 
 ### Fila 1 — encabezados
 
-| A | B | C | D | E | F |
-|---|---|---|---|---|---|
-| `Nombre` | `URL` | `Activo` | `Palabras_clave` | `Ultima_Fecha_Extraida` | `Ultima_Comprobacion` |
+| A | B | C | D | E | F | G |
+|---|---|---|---|---|---|---|
+| `Nombre` | `URL` | `URLs_Adicionales` | `Activo` | `Palabras_clave` | `Ultima_Fecha_Extraida` | `Ultima_Comprobacion` |
 
 | Columna | Uso |
 |---------|-----|
 | **Nombre** | Título legible (para el asunto del email) |
-| **URL** | Página de detalle JCyL (`.../Plantilla100Detalle/.../Convocatoria/.../Empleo`) |
+| **URL** | Página **principal** de la convocatoria |
+| **URLs_Adicionales** | Páginas de **fase** (resoluciones, aprobados, 2º ejercicio…). Separa con `;` si hay varias |
 | **Activo** | `SI` = monitorizar, `NO` = ignorar |
 | **Palabras_clave** | Filtro de descubrimiento: separa con `,` o `;` (ej. `informática, gestión`). Si hay valores en la hoja, solo avisa de convocatorias nuevas cuyo título las contenga |
 | **Ultima_Fecha_Extraida** | Estado completo guardado (no solo una fecha) |
@@ -97,10 +98,29 @@ Crea un Google Sheet: **Control Convocatorias JCyL**.
 
 | Nombre | URL | Activo | Palabras_clave | Ultima_Fecha_Extraida | Ultima_Comprobacion |
 |--------|-----|--------|----------------|----------------------|---------------------|
-| Técnico-a Gestión Informática (PI) | `https://empleopublico.jcyl.es/.../Empleo` | SI | informática | Pendiente | Pendiente |
-| Educador-a Centros (2022) | *(pega URL al añadirla)* | SI | educación | Pendiente | Pendiente |
-| Cuerpo Gestión Económico-Financiera | *(pega URL al añadirla)* | NO | economía | — | — |
-| **_Descubrimiento** | *(vacío)* | NO | informática; sanidad; gestión | — | — |
+| Técnico-a Soporte Informático | `https://empleopublico.jcyl.es/.../1285519792195/Empleo` | `https://empleopublico.jcyl.es/.../1285670309856/Empleo?plantillaObligatoria=...` | SI | informática | Pendiente | Pendiente |
+| Técnico-a Gestión Informática (PI) | `https://empleopublico.jcyl.es/.../Empleo` | *(vacío)* | SI | informática | Pendiente | Pendiente |
+| Educador-a Centros (2022) | *(pega URL principal)* | *(vacío)* | SI | educación | Pendiente | Pendiente |
+| Cuerpo Gestión Económico-Financiera | *(pega URL)* | *(vacío)* | NO | economía | — | — |
+| **_Descubrimiento** | *(vacío)* | *(vacío)* | NO | informática; sanidad; gestión | — | — |
+
+### Páginas de fase JCyL (importante)
+
+JCyL publica la convocatoria en **dos niveles**:
+
+| Tipo | Ejemplo | Qué contiene |
+|------|---------|--------------|
+| **Principal** | [Técnico Soporte Informático](https://empleopublico.jcyl.es/web/jcyl/EmpleoPublico/es/Plantilla100Detalle/1277227614255/Convocatoria/1285519792195/Empleo) | Resumen por secciones (BOCYL, plazos, tribunal, aprobados…) |
+| **Fase** | [Aprobados 1º ejercicio / convocatoria 2º](https://empleopublico.jcyl.es/web/jcyl/EmpleoPublico/es/Plantilla100Detalle/1277227614255/Convocatoria/1285670309856/Empleo?plantillaObligatoria=17PlantillaContenidoFaseConvocatoria) | Resolución completa, **fecha del 2º ejercicio** (ej. 19 sept 2026), plazos de revisión |
+
+La URL principal **resume** la novedad, pero el detalle (fecha/hora del segundo ejercicio) suele estar solo en la **página de fase**. Pon esa URL en **URLs_Adicionales**.
+
+```text
+URL            → https://.../1285519792195/Empleo
+URLs_Adicionales → https://.../1285670309856/Empleo?plantillaObligatoria=17PlantillaContenidoFaseConvocatoria
+```
+
+El monitor concatena ambas en columna **F** (`[principal] … || [fase] …`).
 
 > **`Pendiente` en columna E:** primera ejecución guarda baseline **sin email**. Pon `NO` en **Activo** para pausar una convocatoria sin borrar la fila.
 
