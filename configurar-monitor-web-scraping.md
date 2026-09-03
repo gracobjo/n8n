@@ -2,7 +2,9 @@
 
 Workflow para vigilar **varias páginas distintas** (precio, stock, un texto concreto…) y avisar por Gmail cuando se cumple una condición. La descarga del HTML va por **ScraperAPI**, no por un GET directo, para webs grandes o con antibot.
 
-**Workflow importable:** `[workflows/monitor-web-scraping.json](./workflows/monitor-web-scraping.json)`
+**Workflow importable:** [`workflows/monitor-web-scraping.json`](./workflows/monitor-web-scraping.json)
+
+**Documentación completa** (usuario, desarrollador, funcionalidades, casos de uso, UML): [`documentacion-monitor-web-scraping.md`](./documentacion-monitor-web-scraping.md)
 
 ---
 
@@ -88,9 +90,9 @@ Crea un Sheet: **Control Scraping Webs**.
 ### Fila 1 — encabezados
 
 
-| A       | B     | C              | D           | E              | F           | G        | H              | I                      |
-| ------- | ----- | -------------- | ----------- | -------------- | ----------- | -------- | -------------- | ---------------------- |
-| `ombre` | `URL` | `CSS_Selector` | `Condicion` | `Valor_Umbral` | `Render_JS` | `Activo` | `Ultimo_Valor` | `Ultima_ComprobacionN` |
+| A | B | C | D | E | F | G | H | I |
+|---|---|---|---|---|---|---|---|---|
+| `Nombre` | `URL` | `CSS_Selector` | `Condicion` | `Valor_Umbral` | `Render_JS` | `Activo` | `Ultimo_Valor` | `Ultima_Comprobacion` |
 
 
 
