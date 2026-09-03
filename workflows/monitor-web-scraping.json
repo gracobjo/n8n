@@ -1,0 +1,398 @@
+{
+  "name": "Monitor web scraping — Multi URL (ScraperAPI)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 1,
+              "triggerAtMinute": 0
+            }
+          ]
+        }
+      },
+      "id": "sched-scrape-001",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        240,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "url",
+          "value": "PEGAR_URL_DE_TU_HOJA_GOOGLE_SHEETS"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Control Scraping Webs"
+        },
+        "options": {}
+      },
+      "id": "sheets-read-scrape-001",
+      "name": "Leer URLs a monitorizar",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        460,
+        360
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REEMPLAZAR_ID_CREDENCIAL",
+          "name": "Google account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Pegar en nodo \"Filtrar activas\" (Run Once for All Items)\n// Acepta columnas con nombre (URL, CSS_Selector…) o letras A–I si Sheets no lee encabezados.\n\nfunction pick(row, ...keys) {\n  for (const k of keys) {\n    if (row[k] !== undefined && row[k] !== null && String(row[k]).trim() !== '') {\n      return row[k];\n    }\n  }\n  const entries = Object.entries(row);\n  for (const want of keys) {\n    const found = entries.find(([k]) => k.toLowerCase() === String(want).toLowerCase());\n    if (found && found[1] !== undefined && found[1] !== null && String(found[1]).trim() !== '') {\n      return found[1];\n    }\n  }\n  return '';\n}\n\nfunction normalize(row) {\n  return {\n    ...row,\n    Nombre: String(pick(row, 'Nombre', 'A', 'nombre') || 'Página').trim(),\n    URL: String(pick(row, 'URL', 'B', 'url')).trim(),\n    CSS_Selector: String(pick(row, 'CSS_Selector', 'C', 'css_selector')).trim(),\n    Condicion: String(pick(row, 'Condicion', 'D', 'condicion') || 'changed').trim(),\n    Valor_Umbral: String(pick(row, 'Valor_Umbral', 'E', 'valor_umbral')).trim(),\n    Render_JS: String(pick(row, 'Render_JS', 'F', 'render_js') || 'NO').trim(),\n    Activo: String(pick(row, 'Activo', 'G', 'activo') || 'SI').trim(),\n    Ultimo_Valor: String(pick(row, 'Ultimo_Valor', 'H', 'ultimo_valor')).trim(),\n    Ultima_Comprobacion: String(pick(row, 'Ultima_Comprobacion', 'I', 'ultima_comprobacion')).trim(),\n    row_number: row.row_number,\n  };\n}\n\nconst rows = $input.all().map((item) => normalize(item.json));\n\nconst activas = rows.filter((row) => {\n  if (!row.URL) return false;\n  if (/^url$/i.test(row.URL)) return false; // fila de encabezados leída como dato\n  if (!row.CSS_Selector) return false;\n  if (/^css[_ ]?selector$/i.test(row.CSS_Selector)) return false;\n  const activo = row.Activo.toUpperCase();\n  return activo === 'SI' || activo === 'SÍ' || activo === 'TRUE' || activo === '1' || activo === 'ACTIVO';\n});\n\nif (activas.length === 0) {\n  const muestra = $input.first()?.json ?? {};\n  const claves = Object.keys(muestra).join(', ') || '(sin datos)';\n  throw new Error(\n    `No hay URLs activas. Claves recibidas: ${claves}. ` +\n      'Añade al menos una fila de datos (fila 2+) con URL, CSS_Selector y Activo=SI. ' +\n      'Fila 1 = encabezados.',\n  );\n}\n\nreturn activas.map((row) => ({ json: row }));\n"
+      },
+      "id": "code-filter-scrape-001",
+      "name": "Filtrar activas",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        680,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "split-scrape-001",
+      "name": "Iterar URLs",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        900,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://api.scraperapi.com/",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpQueryAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "url",
+              "value": "={{ $json.URL }}"
+            },
+            {
+              "name": "render",
+              "value": "={{ ['SI', 'SÍ', 'TRUE', '1'].includes(String($json.Render_JS ?? 'NO').trim().toUpperCase()) ? 'true' : 'false' }}"
+            },
+            {
+              "name": "country_code",
+              "value": "es"
+            },
+            {
+              "name": "premium",
+              "value": "={{ (['SI', 'SÍ', 'TRUE', '1'].includes(String($json.Premium ?? 'NO').trim().toUpperCase()) || String($json.URL ?? '').includes('mediamarkt.')) ? 'true' : 'false' }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 60000,
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          }
+        }
+      },
+      "id": "http-scraperapi-001",
+      "name": "ScraperAPI (HTML)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1120,
+        360
+      ],
+      "credentials": {
+        "httpQueryAuth": {
+          "id": "REEMPLAZAR_ID_CREDENCIAL",
+          "name": "ScraperAPI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "extractHtmlContent",
+        "sourceData": "json",
+        "dataPropertyName": "data",
+        "extractionValues": {
+          "values": [
+            {
+              "key": "valor",
+              "cssSelector": "={{ $('Iterar URLs').item.json.CSS_Selector }}",
+              "returnValue": "text"
+            }
+          ]
+        },
+        "options": {
+          "cleanUpText": true
+        }
+      },
+      "id": "html-extract-001",
+      "name": "Extraer con CSS",
+      "type": "n8n-nodes-base.html",
+      "typeVersion": 1.2,
+      "position": [
+        1340,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Pegar en nodo \"Evaluar alerta\" (Run Once for All Items)\n// Compatible con precios ES: 1.199,00€ → 1199\n\nconst fila = $('Iterar URLs').item.json;\nconst extraidoRaw = $input.first().json.valor;\nconst extraido = Array.isArray(extraidoRaw)\n  ? extraidoRaw.join(' | ')\n  : String(extraidoRaw ?? '').trim();\n\nconst condicion = String(fila.Condicion ?? 'changed').trim().toLowerCase();\nconst umbral = String(fila.Valor_Umbral ?? '').trim();\nconst anterior = String(fila.Ultimo_Valor ?? '').trim();\nconst esBaseline =\n  anterior === '' || anterior.toLowerCase() === 'pendiente';\n\n/** Interpreta 1.199,00€ / 1199,00 € / £51.77 */\nfunction parseNumero(text) {\n  let s = String(text).replace(/\\s/g, '').replace(/[€$£]|EUR/gi, '');\n  // Miles ES: 1.199,00 o 1.199\n  if (/^\\d{1,3}(\\.\\d{3})+(,\\d+)?$/.test(s)) {\n    s = s.replace(/\\./g, '').replace(',', '.');\n  } else if (/^\\d+,\\d+$/.test(s)) {\n    s = s.replace(',', '.');\n  } else {\n    // £51.77 u otros: deja el primer número “simple”\n    const m = s.match(/-?\\d+(?:[.,]\\d+)?/);\n    if (!m) return Number.NaN;\n    s = m[0].replace(',', '.');\n  }\n  const n = parseFloat(s);\n  return Number.isFinite(n) ? n : Number.NaN;\n}\n\nlet alerta = false;\nlet motivo = '';\n\nif (condicion === 'contains') {\n  alerta = extraido.toLowerCase().includes(umbral.toLowerCase());\n  motivo = `El texto extraído contiene «${umbral}»`;\n} else if (condicion === 'not_contains') {\n  alerta =\n    extraido !== '' &&\n    !extraido.toLowerCase().includes(umbral.toLowerCase());\n  motivo = `El texto extraído no contiene «${umbral}»`;\n} else if (condicion === 'smaller_than') {\n  const n = parseNumero(extraido);\n  const u = parseNumero(umbral);\n  alerta = Number.isFinite(n) && Number.isFinite(u) && n < u;\n  motivo = alerta\n    ? `Precio ${n} < umbral ${u}`\n    : `Precio ${n} no es < umbral ${u}`;\n} else if (condicion === 'greater_than') {\n  const n = parseNumero(extraido);\n  const u = parseNumero(umbral);\n  alerta = Number.isFinite(n) && Number.isFinite(u) && n > u;\n  motivo = alerta\n    ? `Precio ${n} > umbral ${u}`\n    : `Precio ${n} no es > umbral ${u}`;\n} else {\n  const n = parseNumero(extraido);\n  const a = parseNumero(anterior);\n  if (Number.isFinite(n) && Number.isFinite(a)) {\n    alerta = !esBaseline && n !== a;\n  } else {\n    alerta = !esBaseline && extraido !== anterior;\n  }\n  motivo = 'El valor extraído ha cambiado respecto a la última comprobación';\n}\n\nreturn [\n  {\n    json: {\n      nombre: String(fila.Nombre ?? 'Página').trim(),\n      url: String(fila.URL ?? '').trim(),\n      selector: String(fila.CSS_Selector ?? '').trim(),\n      extraido,\n      anterior,\n      alerta,\n      motivo,\n      condicion,\n      umbral,\n      ahora: new Date().toLocaleString('es-ES'),\n      row_number: fila.row_number,\n    },\n  },\n];\n"
+      },
+      "id": "code-eval-scrape-001",
+      "name": "Evaluar alerta",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1560,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-alerta",
+              "leftValue": "={{ $json.alerta }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-alerta-001",
+      "name": "IF alerta",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1780,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "tu-correo@gmail.com",
+        "subject": "=🚨 Alerta scraping — {{ $json.nombre }}",
+        "emailType": "text",
+        "message": "=Se cumplió la condición de alerta en una página monitorizada.\n\nPágina: {{ $json.nombre }}\nURL: {{ $json.url }}\nSelector CSS: {{ $json.selector }}\nCondición: {{ $json.condicion }} (umbral: {{ $json.umbral }})\nMotivo: {{ $json.motivo }}\nComprobado: {{ $json.ahora }}\n\n--- VALOR ANTERIOR ---\n{{ $json.anterior }}\n\n--- VALOR ACTUAL ---\n{{ $json.extraido }}\n",
+        "options": {}
+      },
+      "id": "gmail-scrape-001",
+      "name": "Gmail alerta",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        2000,
+        260
+      ],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "REEMPLAZAR_ID_CREDENCIAL",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "mode": "url",
+          "value": "PEGAR_URL_DE_TU_HOJA_GOOGLE_SHEETS"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Control Scraping Webs"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "row_number": "={{ $('Evaluar alerta').item.json.row_number }}",
+            "Ultimo_Valor": "={{ $('Evaluar alerta').item.json.extraido }}",
+            "Ultima_Comprobacion": "={{ $('Evaluar alerta').item.json.ahora }}"
+          },
+          "matchingColumns": [
+            "row_number"
+          ],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "sheets-update-scrape-001",
+      "name": "Actualizar fila",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        2220,
+        360
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REEMPLAZAR_ID_CREDENCIAL",
+          "name": "Google account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Leer URLs a monitorizar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leer URLs a monitorizar": {
+      "main": [
+        [
+          {
+            "node": "Filtrar activas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filtrar activas": {
+      "main": [
+        [
+          {
+            "node": "Iterar URLs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Iterar URLs": {
+      "main": [
+        [],
+        [
+          {
+            "node": "ScraperAPI (HTML)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ScraperAPI (HTML)": {
+      "main": [
+        [
+          {
+            "node": "Extraer con CSS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extraer con CSS": {
+      "main": [
+        [
+          {
+            "node": "Evaluar alerta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evaluar alerta": {
+      "main": [
+        [
+          {
+            "node": "IF alerta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF alerta": {
+      "main": [
+        [
+          {
+            "node": "Gmail alerta",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Actualizar fila",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail alerta": {
+      "main": [
+        [
+          {
+            "node": "Actualizar fila",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Actualizar fila": {
+      "main": [
+        [
+          {
+            "node": "Iterar URLs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 1
+}
