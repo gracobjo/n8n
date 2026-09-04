@@ -18,7 +18,7 @@
       "name": "Schedule 03:00",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
-      "position": [200, 300]
+      "position": [0, 300]
     },
     {
       "parameters": {
@@ -50,7 +50,7 @@
       "name": "Rutas backup",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
-      "position": [420, 300]
+      "position": [220, 300]
     },
     {
       "parameters": {
@@ -60,7 +60,7 @@
       "name": "Crear ZIP",
       "type": "n8n-nodes-base.executeCommand",
       "typeVersion": 1,
-      "position": [640, 300]
+      "position": [440, 300]
     },
     {
       "parameters": {
@@ -71,21 +71,38 @@
       "name": "Parsear ruta ZIP",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [860, 300]
+      "position": [660, 300]
     },
     {
       "parameters": {
+        "operation": "read",
+        "fileSelector": "={{ $json.zipPathPosix }}",
+        "options": {
+          "dataPropertyName": "data"
+        }
+      },
+      "id": "read-zip-001",
+      "name": "Leer ZIP disco",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [880, 300],
+      "notes": "File(s) Selector = zipPathPosix (con / y sin espacio). Requiere N8N_RESTRICT_FILE_ACCESS_TO con n8n-backups."
+    },
+    {
+      "parameters": {
+        "resource": "file",
         "operation": "upload",
-        "name": "={{ $json.fileName }}",
+        "inputDataFieldName": "data",
+        "name": "={{ $('Parsear ruta ZIP').item.json.fileName }}",
         "driveId": {
           "__rl": true,
-          "mode": "list",
-          "value": "My Drive"
+          "mode": "id",
+          "value": "root"
         },
         "folderId": {
           "__rl": true,
           "mode": "id",
-          "value": "PEGAR_ID_CARPETA_GOOGLE_DRIVE"
+          "value": "18NmjbymVBtT4BTQuIHUg-7kEhFBswO2r"
         },
         "options": {}
       },
@@ -93,39 +110,39 @@
       "name": "Subir a Google Drive",
       "type": "n8n-nodes-base.googleDrive",
       "typeVersion": 3,
-      "position": [1080, 300],
+      "position": [1100, 300],
       "credentials": {
         "googleDriveOAuth2Api": {
           "id": "REEMPLAZAR_ID_CREDENCIAL",
           "name": "Google Drive account"
         }
       },
-      "disabled": true,
-      "notes": "1) Crea carpeta en Drive y pega su ID. 2) Credencial Google Drive. 3) Activa este nodo y conecta Read Binary si hace falta. Por defecto desactivado: el backup local + rotación funcionan igual."
+      "disabled": false,
+      "notes": "Debe estar EN la cadena (después de Leer ZIP). Parent Drive By ID=root; Folder=18Nmjbym…. Activate si aparece disabled."
     },
     {
       "parameters": {
-        "command": "=powershell -NoProfile -Command \"$dir = '{{ $json.backupDir }}'; $days = {{ $json.daysToKeep }}; $limit = (Get-Date).AddDays(-1 * $days); $removed = @(); Get-ChildItem -LiteralPath $dir -File -Filter 'backup_*.zip' | Where-Object { $_.LastWriteTime -lt $limit } | ForEach-Object { Remove-Item -LiteralPath $_.FullName -Force; $removed += $_.Name }; Write-Output (\\\"deleted=$($removed.Count); files=$($removed -join ',')\\\")\""
+        "command": "=powershell -NoProfile -File \"C:\\Users\\chuwi\\Documents\\n8n\\workflows\\rotar-backups.ps1\" -BackupDir \"{{ $('Parsear ruta ZIP').item.json.backupDir }}\" -DaysToKeep {{ $('Parsear ruta ZIP').item.json.daysToKeep }}"
       },
       "id": "exec-rotate-001",
       "name": "Rotacion +7 dias",
       "type": "n8n-nodes-base.executeCommand",
       "typeVersion": 1,
-      "position": [1300, 300]
+      "position": [1320, 300]
     },
     {
       "parameters": {
         "sendTo": "tu-correo@gmail.com",
         "subject": "=💾 Backup OK — {{ $('Parsear ruta ZIP').item.json.fileName }}",
         "emailType": "text",
-        "message": "=Copia de seguridad completada.\n\nOrigen: {{ $('Parsear ruta ZIP').item.json.sourcePath }}\nZIP: {{ $('Parsear ruta ZIP').item.json.zipPath }}\nCarpeta backups: {{ $('Parsear ruta ZIP').item.json.backupDir }}\nRetención: {{ $('Parsear ruta ZIP').item.json.daysToKeep }} días\nHora: {{ $('Parsear ruta ZIP').item.json.ahora }}\n\nRotación:\n{{ $json.stdout || $json }}\n\nNota: el nodo Google Drive viene desactivado hasta que configures carpeta y credencial.",
+        "message": "=Copia de seguridad completada.\n\nOrigen: {{ $('Parsear ruta ZIP').item.json.sourcePath }}\nZIP: {{ $('Parsear ruta ZIP').item.json.zipPath }}\nCarpeta backups: {{ $('Parsear ruta ZIP').item.json.backupDir }}\nRetención: {{ $('Parsear ruta ZIP').item.json.daysToKeep }} días\nHora: {{ $('Parsear ruta ZIP').item.json.ahora }}\n\nRotación:\n{{ $json.stdout || $json }}\n\nGoogle Drive: {{ $('Subir a Google Drive').isExecuted ? ($('Subir a Google Drive').item.json.webViewLink || ('https://drive.google.com/open?id=' + $('Subir a Google Drive').item.json.id)) : 'no ejecutado — conecta Parsear → Leer ZIP → Drive → Rotacion (y activa el nodo Drive)' }}",
         "options": {}
       },
       "id": "gmail-backup-001",
       "name": "Gmail backup OK",
       "type": "n8n-nodes-base.gmail",
       "typeVersion": 2.1,
-      "position": [1520, 300],
+      "position": [1540, 300],
       "credentials": {
         "gmailOAuth2": {
           "id": "REEMPLAZAR_ID_CREDENCIAL",
@@ -145,6 +162,12 @@
       "main": [[{ "node": "Parsear ruta ZIP", "type": "main", "index": 0 }]]
     },
     "Parsear ruta ZIP": {
+      "main": [[{ "node": "Leer ZIP disco", "type": "main", "index": 0 }]]
+    },
+    "Leer ZIP disco": {
+      "main": [[{ "node": "Subir a Google Drive", "type": "main", "index": 0 }]]
+    },
+    "Subir a Google Drive": {
       "main": [[{ "node": "Rotacion +7 dias", "type": "main", "index": 0 }]]
     },
     "Rotacion +7 dias": {

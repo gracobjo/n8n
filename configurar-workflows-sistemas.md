@@ -12,8 +12,9 @@ Guía para montar los 5 patrones de automatización de sistemas que propones, **
 |---------|------|--------|
 | [`workflows/sistemas-uptime-health.json`](./workflows/sistemas-uptime-health.json) | Monitor HTTP + alerta Gmail | Probado (HTTP 200 en n8n local) |
 | [`workflows/sistemas-vigilancia-carpeta.json`](./workflows/sistemas-vigilancia-carpeta.json) | Local File Trigger → mover a Procesados | Probado (PDF + email) |
-| [`workflows/sistemas-backup-rotacion.json`](./workflows/sistemas-backup-rotacion.json) | ZIP diario + rotación 7 días + Gmail (+ Drive) | ZIP/rotación/Gmail probados; Drive configurado |
-| [`workflows/backup-carpeta.ps1`](./workflows/backup-carpeta.ps1) | Script PowerShell opcional de ZIP | Auxiliar |
+| [`workflows/sistemas-backup-rotacion.json`](./workflows/sistemas-backup-rotacion.json) | ZIP diario + rotación 7 días + Drive + Gmail | Cadena completa documentada |
+| [`workflows/backup-carpeta.ps1`](./workflows/backup-carpeta.ps1) | Script PowerShell de ZIP | Auxiliar |
+| [`workflows/rotar-backups.ps1`](./workflows/rotar-backups.ps1) | Script rotación `backup_*.zip` | Evita bug `$` en Execute Command |
 
 Los casos 4 (deploy Docker) y 5 (auditoría logs) siguen documentados abajo para montarlos a mano.
 
@@ -144,13 +145,14 @@ Backup diario → comprimir ZIP local → (opcional) Google Drive → borrar ZIP
 ### Flujo (JSON importable)
 
 ```text
-Schedule (cron 0 3 * * * → 03:00)
-  → Rutas backup (origen / destino / días)
-  → Execute Command: Crear ZIP
+Schedule (03:00)
+  → Rutas backup
+  → Crear ZIP (backup-carpeta.ps1)
   → Parsear ruta ZIP
-  → [Google Drive upload — desactivado por defecto]
-  → Execute Command: Rotación +7 días
-  → Gmail backup OK
+  → Leer ZIP disco
+  → Subir a Google Drive
+  → Rotacion +7 dias (rotar-backups.ps1)
+  → Gmail backup OK (con enlace Drive)
 ```
 
 ### Importar
@@ -161,15 +163,15 @@ Schedule (cron 0 3 * * * → 03:00)
 2. Arranca n8n con [`start-n8n.ps1`](./start-n8n.ps1) (hace falta **Execute Command** + allow-list de carpetas).
 3. Importa [`workflows/sistemas-backup-rotacion.json`](./workflows/sistemas-backup-rotacion.json).
 4. En **Rutas backup**, ajusta `sourcePath`, `backupDir` y `daysToKeep` si quieres.
-5. Credencial Gmail + tu correo.
+5. Credencial Gmail + Drive + tu correo; comprueba que la cadena incluya Drive.
 6. **Test workflow** (no hace falta esperar a las 03:00).
 7. Publish.
 
-Script auxiliar equivalente: [`workflows/backup-carpeta.ps1`](./workflows/backup-carpeta.ps1).
+Scripts: [`backup-carpeta.ps1`](./workflows/backup-carpeta.ps1), [`rotar-backups.ps1`](./workflows/rotar-backups.ps1).
 
-### Google Drive (opcional → configurado en este entorno)
+### Google Drive
 
-El nodo **Subir a Google Drive** viene **desactivado** en el JSON para que el backup local funcione sin Drive. Detalle completo: [`documentacion-workflows-sistemas.md`](./documentacion-workflows-sistemas.md#5-google-drive--configuración-completa).
+Detalle completo: [`documentacion-workflows-sistemas.md`](./documentacion-workflows-sistemas.md#5-google-drive--configuración-completa).
 
 #### A) Habilitar Google Drive API (si falta → 403)
 
@@ -187,20 +189,33 @@ https://drive.google.com/drive/folders/18NmjbymVBtT4BTQuIHUg-7kEhFBswO2r
 
 ID (solo esto): `18NmjbymVBtT4BTQuIHUg-7kEhFBswO2r` — **no** la URL de «Mi unidad».
 
-#### C) Flujo de nodos
+#### C) Flujo de nodos (obligatorio en el canvas)
+
+El email con *«no ejecutado»* aparece si Drive **no está en la cadena** (aunque lo hayas ejecutado a mano antes). Debe ser:
 
 ```text
 Parsear ruta ZIP
-  → Read/Write Files from Disk (Read)
-  → Subir a Google Drive  ← Activate en el canvas
+  → Leer ZIP disco (Read/Write Files)
+  → Subir a Google Drive   ← activo, no gris
   → Rotacion +7 dias
-  → Gmail
+  → Gmail backup OK
 ```
+
+En el canvas:
+
+1. **Borra** el cable `Parsear ruta ZIP` → `Rotacion +7 dias` (si existe).
+2. Conecta en ese orden: Parsear → Leer ZIP → Drive → Rotacion → Gmail.
+3. Clic derecho en Drive → **Activate** (si sigue disabled).
+4. En **Rotacion**, usa rutas desde Parsear:
+   - `{{ $('Parsear ruta ZIP').item.json.backupDir }}`
+   - `{{ $('Parsear ruta ZIP').item.json.daysToKeep }}`
+   (tras Drive el `$json` ya no lleva `backupDir`).
+5. **Test workflow** completo: en Executions, Drive debe aparecer en verde.
 
 | Nodo | Parámetro | Valor |
 |------|-----------|--------|
-| Read | File(s) Selector | `{{ $json.zipPathPosix }}` (sin espacio delante; con `/`) |
-| Read | Put Output File in Field | `data` |
+| Leer ZIP | File(s) Selector | `{{ $json.zipPathPosix }}` (sin espacio delante; con `/`) |
+| Leer ZIP | Put Output File in Field | `data` |
 | Drive | File / Upload | Input field = `data` |
 | Drive | File Name | `{{ $('Parsear ruta ZIP').item.json.fileName }}` |
 | Drive | Parent Drive | **By ID** = `root` |
@@ -208,23 +223,31 @@ Parsear ruta ZIP
 
 **From list** en gris es normal; no hace falta. Un espacio delante de la ruta → `No file(s) found`. Arranque con allow-list vía `start-n8n.ps1` o las variables de Usuario.
 
+#### D) Texto del email Gmail (sin la nota antigua)
+
+En **Gmail backup OK → Message**, el cuerpo debe acabar con el enlace de Drive (no con «nodo desactivado»):
+
+```text
+Google Drive: {{ $('Subir a Google Drive').isExecuted ? ($('Subir a Google Drive').item.json.webViewLink || ('https://drive.google.com/open?id=' + $('Subir a Google Drive').item.json.id)) : 'no ejecutado (nodo desactivado o sin conectar en esta ejecución)' }}
+```
+
+Si el upload ya funciona (p. ej. [archivo en Drive](https://drive.google.com/open?id=1Fbhy6xTmLwObIrq5RJBsK2gekhleHg6x&usp=drive_copy)) pero el correo sigue mostrando la nota vieja, es solo texto fijo del nodo: edítalo o reimporta el JSON actualizado.
+
 ### PowerShell equivalente (referencia)
 
-```powershell
-powershell -NoProfile -File C:\Users\chuwi\Documents\n8n\workflows\backup-carpeta.ps1
-```
-
-Rotación (> 7 días, solo `backup_*.zip`):
+Rotación vía script (recomendado desde el nodo Execute Command; evita que n8n “coma” `$dir`/`$days`):
 
 ```powershell
-powershell -NoProfile -Command "
-$dir = '$env:USERPROFILE\n8n-backups'
-$limit = (Get-Date).AddDays(-7)
-Get-ChildItem $dir -File -Filter 'backup_*.zip' |
-  Where-Object { $_.LastWriteTime -lt $limit } |
-  Remove-Item -Force
-"
+powershell -NoProfile -File C:\Users\chuwi\Documents\n8n\workflows\rotar-backups.ps1 -BackupDir "C:\Users\chuwi\n8n-backups" -DaysToKeep 7
 ```
+
+En el nodo **Rotacion +7 dias** (modo Expression `fx`):
+
+```text
+powershell -NoProfile -File "C:\Users\chuwi\Documents\n8n\workflows\rotar-backups.ps1" -BackupDir "{{ $('Parsear ruta ZIP').item.json.backupDir }}" -DaysToKeep {{ $('Parsear ruta ZIP').item.json.daysToKeep }}
+```
+
+No pongas la lógica de rotación en `-Command "... $dir = ..."` dentro de un campo `=`: n8n interpreta `$dir`/`$days` y rompe el comando.
 
 ### Base de datos
 

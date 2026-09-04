@@ -10,6 +10,7 @@ Documentación de **usuario**, **desarrollador**, **requisitos funcionales/no fu
 | Vigilancia carpeta | [`workflows/sistemas-vigilancia-carpeta.json`](./workflows/sistemas-vigilancia-carpeta.json) |
 | Backup + rotación | [`workflows/sistemas-backup-rotacion.json`](./workflows/sistemas-backup-rotacion.json) |
 | Script ZIP auxiliar | [`workflows/backup-carpeta.ps1`](./workflows/backup-carpeta.ps1) |
+| Script rotación ZIP | [`workflows/rotar-backups.ps1`](./workflows/rotar-backups.ps1) |
 
 n8n de referencia: **2.22.6 (Self Hosted)** vía `npx n8n` / `start-n8n.ps1`.
 
@@ -175,10 +176,12 @@ https://drive.google.com/drive/folders/18NmjbymVBtT4BTQuIHUg-7kEhFBswO2r
 ```text
 Parsear ruta ZIP
   → Read/Write Files from Disk (Read)
-  → Subir a Google Drive (activar nodo)
+  → Subir a Google Drive (en la cadena, no solo “Execute step”)
   → Rotacion +7 dias
   → Gmail
 ```
+
+Si Drive no está cableado entre Parsear y Rotación, el email dirá *«no ejecutado»* aunque un Execute step manual hubiera subido un ZIP antes.
 
 | Nodo | Parámetro | Valor correcto |
 |------|-----------|----------------|
@@ -191,15 +194,23 @@ Parsear ruta ZIP
 | Google Drive | File Name | `{{ $('Parsear ruta ZIP').item.json.fileName }}` |
 | Google Drive | Parent Drive | **By ID** = `root` |
 | Google Drive | Parent Folder | **By ID** = `18NmjbymVBtT4BTQuIHUg-7kEhFBswO2r` |
-| Google Drive | Estado en JSON importado | **disabled** → Activate en UI |
+| Rotacion +7 dias | Command | `-File ...\rotar-backups.ps1` (no `-Command` con `$dir`/`$days`) |
+| Gmail backup OK | Message | Enlace Drive vía `$('Subir a Google Drive').isExecuted` + `id` / `webViewLink` |
 
 **Notas:**
 
 - **From list** en gris es normal si la credencial no lista drives; **By ID** basta.
 - Parent Drive = ID de carpeta → incorrecto; carpeta va solo en Parent Folder.
-- El nodo viene desactivado a propósito en el JSON para no romper el backup local sin Drive.
+- Drive debe estar **en la cadena** del Test workflow; un Execute step suelto no cuenta para el email.
+- Tras Drive, `$json` ya no trae `backupDir`: Rotacion lee `$('Parsear ruta ZIP')` o usa el `.ps1` con esos args.
 
-### 5.5 Diagrama de secuencia — upload Drive
+### 5.5 Trampa Execute Command + `$` (rotación)
+
+En campos Command con modo expresión (`=` / fx), n8n interpreta tokens como `$dir`, `$days`, `$limit` como variables n8n. Quedan vacíos y PowerShell falla (`$days = ;`, rutas partidas con `\n7`).
+
+**Correcto:** llamar a [`rotar-backups.ps1`](./workflows/rotar-backups.ps1) con `-BackupDir` / `-DaysToKeep`, o escapar dólares PowerShell como `$$` en la expresión.
+
+### 5.6 Diagrama de secuencia — upload Drive
 
 ```mermaid
 sequenceDiagram
@@ -239,13 +250,12 @@ flowchart LR
 ```mermaid
 flowchart LR
   S[Schedule 03:00] --> R[Rutas backup]
-  R --> Z[Execute Command ZIP]
+  R --> Z[Crear ZIP]
   Z --> P[Parsear ruta ZIP]
-  P --> RD[Read binary]
+  P --> RD[Leer ZIP disco]
   RD --> DR[Google Drive Upload]
-  DR --> ROT[Rotación +N días]
-  P -.->|si Drive off| ROT
-  ROT --> G[Gmail]
+  DR --> ROT[rotar-backups.ps1]
+  ROT --> G[Gmail + enlace Drive]
 ```
 
 ### 6.3 Vigilancia de carpeta
@@ -305,9 +315,10 @@ flowchart LR
 |--------|-----------|
 | Uptime → `http://localhost:5678` | HTTP 200, sin alerta |
 | Carpeta → PDF en entradas | Movido + email OK |
-| Backup ZIP + rotación | ZIP creado; email con `deleted=0` |
+| Backup ZIP + rotación | ZIP creado; rotación vía `rotar-backups.ps1`; email con `deleted=0` |
 | Read binary ZIP | OK tras allow-list + path sin espacio |
-| Drive upload | Requiere API Enable + nodo Activate + `root` + folder ID |
+| Drive en cadena completa | Cable Parsear → Leer → Drive → Rotacion; email con `open?id=` |
+| Rotación con `-Command $dir` | Falla (n8n come `$dir`/`$days`); usar `.ps1` |
 
 ---
 
@@ -319,3 +330,6 @@ flowchart LR
 - Google Drive: Parent Drive By ID `root`; Parent Folder `18NmjbymVBtT4BTQuIHUg-7kEhFBswO2r`.
 - 403 resuelto habilitando **Google Drive API** en proyecto Cloud `947509817186`.
 - Variables de Usuario + `start-n8n.ps1` para persistir el arranque.
+- Email Gmail: quitada nota «Drive desactivado»; muestra enlace si el nodo se ejecutó.
+- Cadena obligatoria Parsear → Leer ZIP → Drive → Rotacion (Drive suelto no cuenta).
+- Rotación migrada a `rotar-backups.ps1` por conflicto `$` en Execute Command.
