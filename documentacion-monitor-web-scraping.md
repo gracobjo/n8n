@@ -1,4 +1,4 @@
-# Documentación — Monitor web scraping multi-URL (n8n + ScraperAPI)
+# Documentación — Monitor web scraping multi-URL (n8n + ScraperAPI / Puppeteer)
 
 Documentación de **usuario**, **desarrollador**, **funcionalidades**, **casos de uso** y **diagramas UML** (Mermaid) del sistema de vigilancia de precios/textos en páginas web.
 
@@ -16,7 +16,7 @@ Sistema hermano (empleo público JCyL): [`configurar-monitor-jcyl-convocatorias.
 
 ## 1. Visión general
 
-El monitor lee una hoja de **Google Sheets** (una fila = una URL), descarga el HTML vía **ScraperAPI**, extrae un valor con **CSS**, evalúa una **condición** y, si se cumple, envía un **email Gmail**. Después guarda el valor y la hora de comprobación en la misma fila.
+El monitor lee una hoja de **Google Sheets** (una fila = una URL), descarga el HTML vía **ScraperAPI** o **Puppeteer** (local), extrae un valor con **CSS**, evalúa una **condición** y, si se cumple, envía un **email Gmail**. Después guarda el valor y la hora de comprobación en la misma fila.
 
 ```mermaid
 flowchart LR
@@ -27,7 +27,7 @@ flowchart LR
   subgraph proceso
     F[Filtrar activas]
     I[Iterar 1 a 1]
-    A[ScraperAPI]
+    A[ScraperAPI o Puppeteer]
     E[Extraer CSS]
     V[Evaluar alerta]
   end
@@ -48,7 +48,7 @@ flowchart LR
 | ID | Funcionalidad | Descripción |
 |----|---------------|-------------|
 | F1 | Multi-URL | Varias páginas distintas en la misma hoja; cada una con su selector y regla |
-| F2 | Scraping antibot | Descarga HTML con ScraperAPI (`render`, `premium` opcional, `country_code=es`) |
+| F2 | Scraping antibot (cloud) | ScraperAPI (`render`, `premium` / `ultra_premium`, `country_code=es`) |
 | F3 | Extracción CSS | Nodo HTML con selector por fila (ej. `#pdp-price-current-integer`) |
 | F4 | Condiciones | `smaller_than`, `greater_than`, `contains`, `not_contains`, `changed` |
 | F5 | Precios ES | Parser de `1.199,00€` / `1099.99` sin falsos positivos |
@@ -57,13 +57,47 @@ flowchart LR
 | F8 | Persistencia | Actualiza `Ultimo_Valor` y `Ultima_Comprobacion` por `row_number` |
 | F9 | Activación | `Activo=SI/NO` para pausar filas sin borrarlas |
 | F10 | Fallback MediaMarkt | Script opcional por JSON-LD (dominio suele exigir plan premium ScraperAPI) |
+| F11 | Puppeteer local | Nodo comunitario `n8n-nodes-puppeteer` (Get Page Content → campo `body`) |
 
 ### Limitaciones conocidas
 
-- **MediaMarkt** y dominios muy protegidos: ScraperAPI pide `premium` / `ultra_premium`; el plan free suele fallar.
+- **MediaMarkt** / **eStore ASUS**: ScraperAPI free suele fallar (`premium`/`ultra_premium`); Puppeteer local en ASUS suele devolver **403**.
 - Selectores con clases generadas (`mms-ui-…`) son frágiles; preferir `id` / `data-*`.
-- Puppeteer **no** está en n8n core (`n8n-nodes-puppeteer` es comunitario).
-- Variables UI (`$vars`) son de plan de pago; la API key va en credencial **Query Auth**.
+- Puppeteer **no** está en n8n core; instalar en `%USERPROFILE%\.n8n`, **nunca** con `npm install` en el monorepo git (`workspace:*`).
+- Variables UI (`$vars`) son de plan de pago; la API key de ScraperAPI va en credencial **Query Auth**.
+- Tras Puppeteer, el nodo HTML debe leer **`body`**, no `data`.
+
+---
+
+## 2.1 Puppeteer — instalación y opciones a cambiar
+
+Detalle operativo también en [`configurar-monitor-web-scraping.md`](./configurar-monitor-web-scraping.md#puppeteer-en-local-nodo-comunitario).
+
+### Instalación local (resumen)
+
+1. **Settings → Community nodes** → `n8n-nodes-puppeteer` → reiniciar n8n.
+2. Instalar Chrome de Puppeteer (versión pedida en el error, p. ej. 148) vía CLI de `@puppeteer/browsers` dentro de `...\n8n-nodes-puppeteer\node_modules\puppeteer`.
+3. Asegurar binario en `C:\Users\<user>\.cache\puppeteer\chrome\win64-<ver>\...` (junction/copia si hace falta).
+4. Opcional: **Options → Executable path** = Chrome del sistema.
+
+### Checklist de parámetros en el canvas
+
+| Nodo | Parámetro | Valor correcto | Error si está mal |
+|------|-----------|----------------|-------------------|
+| Puppeteer | URL | Expression `{{ $json.URL }}` | `Invalid URL: =https://...` |
+| Puppeteer | Operation | Fixed **Get Page Content** | `operation: "=getPageContent"` / fallos raros |
+| Puppeteer | Options → Executable path | Ruta a `chrome.exe` | `Could not find Chrome (ver. …)` |
+| Extraer con CSS | JSON Property | **`body`** (Puppeteer) o `data` (ScraperAPI) | `No property named "data" exists!` |
+| ScraperAPI | `premium` / `ultra_premium` | `true` en dominios protegidos | 500 Protected domains… |
+
+### Matriz tienda × motor (experiencia de este proyecto)
+
+| Tienda | Selector ejemplo | Motor recomendado |
+|--------|------------------|-------------------|
+| PcComponentes | `#pdp-price-current-integer` | ScraperAPI o Puppeteer |
+| eStore ASUS | `[data-price-type="finalPrice"]` | ScraperAPI premium/trial; Puppeteer suele 403 |
+| MediaMarkt | JSON-LD / premium | ScraperAPI de pago; free no suele bastar |
+| books.toscrape (demo) | `.price_color` | Cualquiera |
 
 ---
 
@@ -207,7 +241,7 @@ Componentes (no son clases Java; son nodos/módulos del workflow):
 | SheetsReader | `googleSheets` read | Cargar filas |
 | ActiveFilter | Code `filtrar-activas-scraping.js` | Normalizar A–I / nombres; filtrar `Activo=SI` |
 | UrlIterator | `splitInBatches` | Procesar de 1 en 1 |
-| HtmlFetcher | `httpRequest` + ScraperAPI | Obtener HTML texto |
+| HtmlFetcher | `httpRequest` + ScraperAPI **o** `n8n-nodes-puppeteer` (Get Page Content) | Obtener HTML texto |
 | CssExtractor | `html` extractHtmlContent | Aplicar CSS de la fila |
 | AlertEvaluator | Code `evaluar-alerta-scraping.js` | Condiciones + parseo numérico ES |
 | MediaMarktExtractor | Code `extraer-precio-mediamarkt.js` | Alternativa JSON-LD (opcional) |
@@ -370,6 +404,7 @@ sequenceDiagram
 | MonitorWorkflow | Workflow JSON + Schedule |
 | PaginaMonitorizada | Fila Google Sheets |
 | ScraperApiClient | Nodo HTTP Request → `api.scraperapi.com` |
+| (alt.) PuppeteerFetcher | `n8n-nodes-puppeteer` → salida `body` |
 | ExtractorHtml | Nodo `n8n-nodes-base.html` |
 | EvaluadorAlerta | `evaluar-alerta-scraping.js` |
 | NotificadorGmail | Nodo Gmail |
@@ -432,3 +467,4 @@ flowchart LR
 | Fecha | Cambio |
 |-------|--------|
 | 2026-09-03 | Versión inicial: usuario, desarrollador, funcionalidades, CU y UML (clases, objetos, secuencia, casos de uso) |
+| 2026-09-04 | Puppeteer local: instalación Windows, Options (URL/Operation/Executable path), `body` vs `data`, matriz tiendas (ASUS 403, MediaMarkt premium) |

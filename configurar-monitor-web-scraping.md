@@ -1,6 +1,6 @@
-# Monitor de scraping web en n8n (multi-URL, ScraperAPI)
+# Monitor de scraping web en n8n (multi-URL, ScraperAPI / Puppeteer)
 
-Workflow para vigilar **varias páginas distintas** (precio, stock, un texto concreto…) y avisar por Gmail cuando se cumple una condición. La descarga del HTML va por **ScraperAPI**, no por un GET directo, para webs grandes o con antibot.
+Workflow para vigilar **varias páginas distintas** (precio, stock, un texto concreto…) y avisar por Gmail cuando se cumple una condición. La descarga del HTML puede ir por **ScraperAPI** o por el nodo comunitario **Puppeteer** (navegador local).
 
 **Workflow importable:** [`workflows/monitor-web-scraping.json`](./workflows/monitor-web-scraping.json)
 
@@ -8,21 +8,82 @@ Workflow para vigilar **varias páginas distintas** (precio, stock, un texto con
 
 ---
 
-## Puppeteer: no está instalado
+## Puppeteer en local (nodo comunitario)
 
-`n8n-nodes-base.puppeteer` **no existe** en n8n. Puppeteer es un **nodo de comunidad**:
+`n8n-nodes-base.puppeteer` **no existe**. El paquete correcto es:
 
+| Dato | Valor |
+|------|--------|
+| npm | `n8n-nodes-puppeteer` |
+| Tipo de nodo | `n8n-nodes-puppeteer.puppeteer` |
+| Instalación típica | `%USERPROFILE%\.n8n\nodes\` (no el monorepo git) |
 
-| Dato           | Valor                                                   |
-| -------------- | ------------------------------------------------------- |
-| Paquete npm    | `n8n-nodes-puppeteer`                                   |
-| Tipo de nodo   | `n8n-nodes-puppeteer.puppeteer` (no `n8n-nodes-base.*`) |
-| En este equipo | No aparece en `~/.n8n` ni en el core de n8n             |
+### Qué no hacer
 
+```powershell
+# MAL: dentro de C:\Users\...\Documents\n8n (monorepo pnpm)
+npm install puppeteer
+# → Error: Unsupported URL Type "workspace:"
+```
 
-Por eso este workflow usa **ScraperAPI** (plan gratuito: [scraperapi.com](https://www.scraperapi.com/)). Si más adelante instalas el nodo comunitario, puedes sustituir el nodo `ScraperAPI (HTML)` por Puppeteer (`Get HTML` / `Get Page Content`) y dejar el resto igual.
+### Instalación (Windows + npx n8n)
 
-Para instalar Puppeteer en tu n8n local: **Settings → Community Nodes → Install → `n8n-nodes-puppeteer`**. En Docker suele hacer falta Chromium y `--no-sandbox`; ScraperAPI evita esa fricción.
+1. n8n → **Settings → Community nodes → Install** → `n8n-nodes-puppeteer` → reiniciar n8n.
+2. Si falta Chrome para Puppeteer (`Could not find Chrome ver. 148…`):
+
+```powershell
+cd $env:USERPROFILE\.n8n\nodes\node_modules\n8n-nodes-puppeteer\node_modules\puppeteer
+node ".\node_modules\@puppeteer\browsers\lib\cjs\main-cli.js" install chrome@148.0.7778.97
+```
+
+3. Enlazar a la caché que usa el nodo (si el error cita `C:\Users\...\ .cache\puppeteer`):
+
+```powershell
+# Ajusta rutas si tu versión de Chrome Puppeteer es otra
+$src = "$env:USERPROFILE\.n8n\nodes\node_modules\n8n-nodes-puppeteer\node_modules\puppeteer\chrome\win64-148.0.7778.97"
+$dst = "$env:USERPROFILE\.cache\puppeteer\chrome"
+New-Item -ItemType Directory -Force -Path $dst | Out-Null
+cmd /c "mklink /J `"$dst\win64-148.0.7778.97`" `"$src`""
+```
+
+4. Reinicia n8n (`npx n8n`).
+
+### Sustituir ScraperAPI por Puppeteer en el canvas
+
+```text
+Iterar URLs → Puppeteer → Extraer con CSS → Evaluar alerta → IF → Gmail / Actualizar
+```
+
+### Opciones del nodo Puppeteer (obligatorio revisar)
+
+| Campo | Cómo configurarlo | Notas |
+|-------|-------------------|--------|
+| **URL** | Expression: `{{ $json.URL }}` | **No** pongas `=https://...` a mano (Invalid URL) |
+| **Operation** | Fixed → **Get Page Content** | **No** uses fx con `=getPageContent` |
+| **Options → Executable path** | `C:\Program Files\Google\Chrome\Application\chrome.exe` | Add Option → Executable path |
+| **Options → Stealth** | `true` si existe | Ayuda en algunas tiendas |
+| **Options → Headless** | Prueba `false` si hay 403 | Más lento; a veces evita bloqueos |
+
+### Extraer con CSS tras Puppeteer
+
+ScraperAPI devuelve el HTML en **`data`**. Puppeteer `getPageContent` lo pone en **`body`**.
+
+| Campo del nodo HTML | Con ScraperAPI | Con Puppeteer |
+|---------------------|----------------|---------------|
+| JSON Property | `data` | **`body`** |
+| CSS Selector | `={{ $('Iterar URLs').item.json.CSS_Selector }}` | igual |
+| Key / Return | `valor` / Text | igual |
+
+### Límites vistos en pruebas
+
+| Sitio | ScraperAPI free | Puppeteer local |
+|-------|-----------------|-----------------|
+| books.toscrape.com | OK | OK |
+| PcComponentes | OK (a veces pide premium) | OK en pruebas |
+| eStore ASUS | premium / ultra_premium | suele **403** |
+| MediaMarkt | premium / ultra_premium | no viable en free |
+
+Conclusión práctica: **PcComponentes** (u otras tiendas abiertas) con Puppeteer o ScraperAPI; ASUS/MediaMarkt → `Activo=NO` o ScraperAPI de pago / trial.
 
 ---
 
@@ -33,8 +94,8 @@ Schedule (1 h)
   → Leer hoja (varias URLs)
   → Filtrar Activo=SI
   → Iterar URLs (1 a 1)
-      → ScraperAPI GET (HTML como texto)
-      → HTML (CSS selector de esa fila)
+      → ScraperAPI  -o-  Puppeteer (Get Page Content)
+      → HTML (CSS; JSON property data|body)
       → Evaluar alerta (contains / smaller_than / changed…)
       → IF alerta → Gmail
       → Actualizar Ultimo_Valor
@@ -240,7 +301,11 @@ Intervalo por defecto: **cada 1 hora**. Si tienes muchas filas o `Render_JS=SI`,
 | 401 / “Unauthorized” de ScraperAPI     | Credencial Query Auth mal creada (`Name` debe ser exactamente `api_key`) o API key incorrecta |
 | No aparece Settings → Variables        | Normal en Community: usa credencial Query Auth (paso 1)                                       |
 | «No hay URLs activas» en Filtrar activas | Sheets envía A/B/C o falta fila de datos. Pega el código de `workflows/filtrar-activas-scraping.js`. Fila 1 = encabezados; fila 2+ = URL, CSS_Selector, Activo=SI |
-| «Protected domains… premium=true»      | MediaMarkt: añade query `premium=true` (y si hace falta `ultra_premium=true`). El plan free suele no bastar; gasta muchos créditos |
+| «Protected domains… premium=true»      | MediaMarkt/ASUS: `premium` o `ultra_premium`; free suele no bastar |
+| Puppeteer: Could not find Chrome       | Instalar chrome@versión del error; Executable path o junction en `.cache\puppeteer` |
+| Puppeteer: Invalid URL: =https://…     | Quitar `=` fijo; Expression solo `{{ $json.URL }}`; Operation en Fixed |
+| Extraer CSS: No property named "data"  | Con Puppeteer pon JSON Property = `body` |
+| Puppeteer: 403 en ASUS                 | Antibot de la tienda; usar PCC u otra fuente, o ScraperAPI premium/trial |
 | HTML vacío o bloqueo                   | Pon `Render_JS=SI`; si sigue, `premium=true` |
 | `valor` vacío                          | CSS incorrecto; prueba el selector en DevTools → Inspect                                      |
 | Email en cada ejecución con `changed`  | Espacios distintos; mira **Ultimo_Valor** vs **valor**                                        |
