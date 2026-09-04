@@ -177,6 +177,7 @@ Quedan fijadas a nivel **User** (nuevas terminales / sesión tras relogin o abri
 | `NODES_EXCLUDE` | `[]` |
 | `N8N_RESTRICT_FILE_ACCESS_TO` | `%USERPROFILE%\n8n-backups;%USERPROFILE%\n8n-backup-origen;%USERPROFILE%\n8n-entradas;%USERPROFILE%\n8n-procesados;%USERPROFILE%\.n8n-files` |
 | `N8N_COMMUNITY_PACKAGES_ENABLED` | `true` |
+| `GENERIC_TIMEZONE` | `Europe/Madrid` (hora de España peninsular; Canarias: `Atlantic/Canary`) |
 
 Script equivalente: [`start-n8n.ps1`](./start-n8n.ps1).
 
@@ -427,3 +428,4 @@ flowchart LR
 - Cadena obligatoria Parsear → Leer ZIP → Drive → Rotacion (Drive suelto no cuenta).
 - Rotación migrada a `rotar-backups.ps1` por conflicto `$` en Execute Command.
 - Añadidas fichas por workflow (§2): qué hace / qué no hace / tipo de backup / entradas-salidas.
+- `GENERIC_TIMEZONE=Europe/Madrid` en arranque; guía Telegram con mapa «dónde se configura» (chat_id, credencial, timezone workflow vs nodo).

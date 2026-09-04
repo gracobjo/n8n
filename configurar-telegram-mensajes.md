@@ -39,7 +39,25 @@ https://api.telegram.org/botTOKEN/getUpdates
 4. **Test workflow** (no hace falta esperar a las 09:00).
 5. Si llega el mensaje → **Publish**.
 
-Por defecto el Schedule dispara **cada día a las 09:00** (hora del servidor donde corre n8n).
+Por defecto el Schedule dispara **cada día a las 09:00** en zona **Europe/Madrid** (hora de España peninsular).
+
+### Timezone España
+
+n8n usa por defecto `America/New_York` si no se configura nada. Para España:
+
+1. **Instancia (recomendado):** variable de entorno `GENERIC_TIMEZONE=Europe/Madrid` (ya en [`start-n8n.ps1`](./start-n8n.ps1) y como variable de Usuario Windows).
+2. **Por workflow:** Settings del workflow → **Timezone** → `Europe/Madrid`.
+3. **Reinicia n8n** tras cambiar la variable (cierra y `start-n8n.ps1`).
+
+En el texto del mensaje, fuerza España aunque `$now` use otra zona:
+
+```text
+Hora: {{ $now.setZone('Europe/Madrid').toFormat('dd/MM/yyyy HH:mm') }}
+```
+
+El tab **Settings del nodo Telegram** no tiene timezone; el del **workflow** sí (⋯ / engranaje del canvas, no del nodo).
+
+Canarias: usa `Atlantic/Canary` si lo necesitas.
 
 ---
 

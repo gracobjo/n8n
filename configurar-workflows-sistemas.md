@@ -53,9 +53,10 @@ $restrict = "$env:USERPROFILE\n8n-backups;$env:USERPROFILE\n8n-backup-origen;$en
 [System.Environment]::SetEnvironmentVariable('NODES_EXCLUDE', '[]', 'User')
 [System.Environment]::SetEnvironmentVariable('N8N_RESTRICT_FILE_ACCESS_TO', $restrict, 'User')
 [System.Environment]::SetEnvironmentVariable('N8N_COMMUNITY_PACKAGES_ENABLED', 'true', 'User')
+[System.Environment]::SetEnvironmentVariable('GENERIC_TIMEZONE', 'Europe/Madrid', 'User')
 ```
 
-Comprueba en el buscador de nodos que aparecen **Local File Trigger** y **Execute Command**.
+Comprueba en el buscador de nodos que aparecen **Local File Trigger** y **Execute Command**. La zona horaria de Schedules es **Europe/Madrid** vía `GENERIC_TIMEZONE` (también en Settings de cada workflow).
 
 
 ---

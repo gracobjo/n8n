@@ -11,8 +11,10 @@ $env:N8N_RESTRICT_FILE_ACCESS_TO = @(
   "$env:USERPROFILE\.n8n-files"
 ) -join ';'
 $env:N8N_COMMUNITY_PACKAGES_ENABLED = 'true'
+$env:GENERIC_TIMEZONE = 'Europe/Madrid'
 
 Write-Host "NODES_EXCLUDE=$env:NODES_EXCLUDE"
 Write-Host "N8N_RESTRICT_FILE_ACCESS_TO=$env:N8N_RESTRICT_FILE_ACCESS_TO"
+Write-Host "GENERIC_TIMEZONE=$env:GENERIC_TIMEZONE"
 Write-Host "Starting n8n..."
 npx n8n
