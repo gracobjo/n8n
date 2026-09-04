@@ -1,0 +1,81 @@
+{
+  "name": "Telegram — Mensaje programado",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "daysInterval": 1,
+              "triggerAtHour": 9,
+              "triggerAtMinute": 0
+            }
+          ]
+        }
+      },
+      "id": "sched-tg-001",
+      "name": "Schedule 09:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "t1",
+              "name": "chatId",
+              "value": "PEGAR_CHAT_ID",
+              "type": "string"
+            },
+            {
+              "id": "t2",
+              "name": "texto",
+              "value": "Buenos días. Recordatorio automático desde n8n.",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "set-tg-001",
+      "name": "Mensaje",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chatId }}",
+        "text": "={{ $json.texto }}\n\nHora: {{ $now.toFormat('dd/MM/yyyy HH:mm') }}",
+        "additionalFields": {}
+      },
+      "id": "tg-send-001",
+      "name": "Telegram Send Message",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [680, 300],
+      "credentials": {
+        "telegramApi": {
+          "id": "REEMPLAZAR_ID_CREDENCIAL",
+          "name": "Telegram account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Schedule 09:00": {
+      "main": [[{ "node": "Mensaje", "type": "main", "index": 0 }]]
+    },
+    "Mensaje": {
+      "main": [[{ "node": "Telegram Send Message", "type": "main", "index": 0 }]]
+    }
+  },
+  "pinData": {},
+  "settings": { "executionOrder": "v1" },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 1
+}

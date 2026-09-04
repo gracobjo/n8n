@@ -11,6 +11,7 @@ Documentación de **usuario**, **desarrollador**, **requisitos funcionales/no fu
 | Backup + rotación | [`workflows/sistemas-backup-rotacion.json`](./workflows/sistemas-backup-rotacion.json) |
 | Script ZIP auxiliar | [`workflows/backup-carpeta.ps1`](./workflows/backup-carpeta.ps1) |
 | Script rotación ZIP | [`workflows/rotar-backups.ps1`](./workflows/rotar-backups.ps1) |
+| Telegram programado | [`workflows/telegram-mensaje-programado.json`](./workflows/telegram-mensaje-programado.json) · guía [`configurar-telegram-mensajes.md`](./configurar-telegram-mensajes.md) |
 
 n8n de referencia: **2.22.6 (Self Hosted)** vía `npx n8n` / `start-n8n.ps1`.
 
@@ -107,6 +108,18 @@ Pensadas para alguien que **no** ha seguido la conversación de configuración. 
 | **Salidas** | Email crítico si hay anomalía. |
 | **Estado** | Solo documentación manual. |
 
+### 2.6 Telegram — mensaje programado
+
+| | |
+|--|--|
+| **Archivo** | [`workflows/telegram-mensaje-programado.json`](./workflows/telegram-mensaje-programado.json) · [`configurar-telegram-mensajes.md`](./configurar-telegram-mensajes.md) |
+| **Qué hace** | Cada día a las **09:00** (configurable) envía un texto a tu chat de Telegram. |
+| **Qué no hace** | No escucha comandos del bot; no es conversacional (haría falta Telegram Trigger). |
+| **Tipo de backup** | N/A |
+| **Entradas** | Token BotFather, `chat_id`, Schedule, texto. |
+| **Salidas** | Mensaje en Telegram. |
+| **Estado** | JSON listo; falta crear bot + credencial en tu instancia. |
+
 ### Resumen rápido
 
 | # | Workflow | JSON | Backup |
@@ -116,6 +129,7 @@ Pensadas para alguien que **no** ha seguido la conversación de configuración. 
 | 3 | Carpeta | Sí | — |
 | 4 | Deploy | No | — |
 | 5 | Logs | No | — |
+| — | Telegram programado | Sí | — (mensajería, no backup) |
 
 ---
 
@@ -135,6 +149,7 @@ Pensadas para alguien que **no** ha seguido la conversación de configuración. 
 | RF-10 | Leer binarios desde disco solo en rutas allow-list | Backup → Drive | Requiere `N8N_RESTRICT_FILE_ACCESS_TO` |
 | RF-11 | Webhook + comandos de deploy (git/docker) | Deploy | Documentado (manual) |
 | RF-12 | Auditar eventos de autenticación fallida | Logs | Documentado (manual) |
+| RF-13 | Enviar mensaje de texto a Telegram en horario programado | Telegram | JSON listo |
 
 ---
 

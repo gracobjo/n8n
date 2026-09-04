@@ -438,3 +438,4 @@ No hace falta agente n8n en el servidor destino.
 | 3 Carpeta | Local File Trigger | Mover a procesados | Gmail | `sistemas-vigilancia-carpeta.json` |
 | 4 Deploy | Webhook GitHub | `git pull` + docker | Gmail/Telegram | (manual) |
 | 5 Logs | Schedule 1 h | Eventos 4625 / auth.log | Gmail crítico | (manual) |
+| Telegram programado | Schedule 09:00 | Send Message | Telegram | [`telegram-mensaje-programado.json`](./workflows/telegram-mensaje-programado.json) — guía [`configurar-telegram-mensajes.md`](./configurar-telegram-mensajes.md) |
