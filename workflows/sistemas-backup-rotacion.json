@@ -1,0 +1,159 @@
+{
+  "name": "Sistemas — Backup local + rotación",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "daysInterval": 1,
+              "triggerAtHour": 3,
+              "triggerAtMinute": 0
+            }
+          ]
+        }
+      },
+      "id": "sched-backup-001",
+      "name": "Schedule 03:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [200, 300]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "b1",
+              "name": "sourcePath",
+              "value": "C:\\Users\\chuwi\\n8n-backup-origen",
+              "type": "string"
+            },
+            {
+              "id": "b2",
+              "name": "backupDir",
+              "value": "C:\\Users\\chuwi\\n8n-backups",
+              "type": "string"
+            },
+            {
+              "id": "b3",
+              "name": "daysToKeep",
+              "value": 7,
+              "type": "number"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "set-backup-001",
+      "name": "Rutas backup",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [420, 300]
+    },
+    {
+      "parameters": {
+        "command": "=powershell -NoProfile -File \"C:\\Users\\chuwi\\Documents\\n8n\\workflows\\backup-carpeta.ps1\" -SourcePath \"{{ $json.sourcePath }}\" -BackupDir \"{{ $json.backupDir }}\""
+      },
+      "id": "exec-zip-001",
+      "name": "Crear ZIP",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [640, 300]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const cfg = $('Rutas backup').item.json;\nconst out = $input.first().json;\nconst stdout = String(out.stdout ?? out ?? '');\nconst lines = stdout\n  .split(/\\r?\\n/)\n  .map((l) => l.replace(/^\\uFEFF/, '').trim().replace(/^['\"]|['\"]$/g, ''))\n  .filter(Boolean);\nlet zipPath = lines.reverse().find((l) => /\\.zip$/i.test(l)) || '';\nzipPath = zipPath.trim();\n\nif (!zipPath || !/\\.zip$/i.test(zipPath)) {\n  throw new Error(\n    `No se obtuvo ruta ZIP válida. stdout: ${stdout}. stderr: ${out.stderr ?? ''}`,\n  );\n}\n\nconst fileName = zipPath.split(/[/\\\\]/).pop();\nconst zipPathPosix = zipPath.replace(/\\\\/g, '/');\n\nreturn [\n  {\n    json: {\n      sourcePath: cfg.sourcePath,\n      backupDir: cfg.backupDir,\n      daysToKeep: Number(cfg.daysToKeep ?? 7),\n      zipPath,\n      zipPathPosix,\n      fileName,\n      ahora: new Date().toLocaleString('es-ES'),\n    },\n  },\n];"
+      },
+      "id": "code-parse-zip-001",
+      "name": "Parsear ruta ZIP",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [860, 300]
+    },
+    {
+      "parameters": {
+        "operation": "upload",
+        "name": "={{ $json.fileName }}",
+        "driveId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "My Drive"
+        },
+        "folderId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "PEGAR_ID_CARPETA_GOOGLE_DRIVE"
+        },
+        "options": {}
+      },
+      "id": "gdrive-upload-001",
+      "name": "Subir a Google Drive",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [1080, 300],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "REEMPLAZAR_ID_CREDENCIAL",
+          "name": "Google Drive account"
+        }
+      },
+      "disabled": true,
+      "notes": "1) Crea carpeta en Drive y pega su ID. 2) Credencial Google Drive. 3) Activa este nodo y conecta Read Binary si hace falta. Por defecto desactivado: el backup local + rotación funcionan igual."
+    },
+    {
+      "parameters": {
+        "command": "=powershell -NoProfile -Command \"$dir = '{{ $json.backupDir }}'; $days = {{ $json.daysToKeep }}; $limit = (Get-Date).AddDays(-1 * $days); $removed = @(); Get-ChildItem -LiteralPath $dir -File -Filter 'backup_*.zip' | Where-Object { $_.LastWriteTime -lt $limit } | ForEach-Object { Remove-Item -LiteralPath $_.FullName -Force; $removed += $_.Name }; Write-Output (\\\"deleted=$($removed.Count); files=$($removed -join ',')\\\")\""
+      },
+      "id": "exec-rotate-001",
+      "name": "Rotacion +7 dias",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [1300, 300]
+    },
+    {
+      "parameters": {
+        "sendTo": "tu-correo@gmail.com",
+        "subject": "=💾 Backup OK — {{ $('Parsear ruta ZIP').item.json.fileName }}",
+        "emailType": "text",
+        "message": "=Copia de seguridad completada.\n\nOrigen: {{ $('Parsear ruta ZIP').item.json.sourcePath }}\nZIP: {{ $('Parsear ruta ZIP').item.json.zipPath }}\nCarpeta backups: {{ $('Parsear ruta ZIP').item.json.backupDir }}\nRetención: {{ $('Parsear ruta ZIP').item.json.daysToKeep }} días\nHora: {{ $('Parsear ruta ZIP').item.json.ahora }}\n\nRotación:\n{{ $json.stdout || $json }}\n\nNota: el nodo Google Drive viene desactivado hasta que configures carpeta y credencial.",
+        "options": {}
+      },
+      "id": "gmail-backup-001",
+      "name": "Gmail backup OK",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [1520, 300],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "REEMPLAZAR_ID_CREDENCIAL",
+          "name": "Gmail account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Schedule 03:00": {
+      "main": [[{ "node": "Rutas backup", "type": "main", "index": 0 }]]
+    },
+    "Rutas backup": {
+      "main": [[{ "node": "Crear ZIP", "type": "main", "index": 0 }]]
+    },
+    "Crear ZIP": {
+      "main": [[{ "node": "Parsear ruta ZIP", "type": "main", "index": 0 }]]
+    },
+    "Parsear ruta ZIP": {
+      "main": [[{ "node": "Rotacion +7 dias", "type": "main", "index": 0 }]]
+    },
+    "Rotacion +7 dias": {
+      "main": [[{ "node": "Gmail backup OK", "type": "main", "index": 0 }]]
+    }
+  },
+  "pinData": {},
+  "settings": { "executionOrder": "v1" },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 1
+}

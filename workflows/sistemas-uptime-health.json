@@ -1,0 +1,153 @@
+{
+  "name": "Sistemas — Uptime / Health Check",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 5
+            }
+          ]
+        }
+      },
+      "id": "sched-uptime-001",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "url",
+              "value": "http://localhost:5678",
+              "type": "string"
+            },
+            {
+              "id": "a2",
+              "name": "nombre",
+              "value": "n8n local",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "set-target-001",
+      "name": "Definir objetivo",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.url }}",
+        "options": {
+          "timeout": 10000,
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "http-uptime-001",
+      "name": "HTTP health check",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [680, 300],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const meta = $('Definir objetivo').item.json;\nconst res = $input.first().json;\n\nconst statusCode = Number(res.statusCode ?? res.status ?? 0);\nconst ok = statusCode >= 200 && statusCode < 400;\n\nreturn [\n  {\n    json: {\n      nombre: meta.nombre,\n      url: meta.url,\n      statusCode,\n      ok,\n      ahora: new Date().toLocaleString('es-ES'),\n      error: res.error ?? res.message ?? '',\n    },\n  },\n];"
+      },
+      "id": "code-eval-uptime-001",
+      "name": "Evaluar respuesta",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-down",
+              "leftValue": "={{ $json.ok }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "false"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-down-001",
+      "name": "IF caido",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "sendTo": "tu-correo@gmail.com",
+        "subject": "=⚠️ Uptime — {{ $json.nombre }} no responde",
+        "emailType": "text",
+        "message": "=Alerta de disponibilidad.\n\nServicio: {{ $json.nombre }}\nURL: {{ $json.url }}\nStatus HTTP: {{ $json.statusCode }}\nHora: {{ $json.ahora }}\nDetalle: {{ $json.error }}\n\nRevisa el servicio cuanto antes.",
+        "options": {}
+      },
+      "id": "gmail-uptime-001",
+      "name": "Gmail alerta",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [1340, 200],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "REEMPLAZAR_ID_CREDENCIAL",
+          "name": "Gmail account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [[{ "node": "Definir objetivo", "type": "main", "index": 0 }]]
+    },
+    "Definir objetivo": {
+      "main": [[{ "node": "HTTP health check", "type": "main", "index": 0 }]]
+    },
+    "HTTP health check": {
+      "main": [[{ "node": "Evaluar respuesta", "type": "main", "index": 0 }]]
+    },
+    "Evaluar respuesta": {
+      "main": [[{ "node": "IF caido", "type": "main", "index": 0 }]]
+    },
+    "IF caido": {
+      "main": [
+        [{ "node": "Gmail alerta", "type": "main", "index": 0 }],
+        []
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": { "executionOrder": "v1" },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 1
+}

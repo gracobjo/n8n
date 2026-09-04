@@ -1,0 +1,77 @@
+{
+  "name": "Sistemas — Vigilancia carpeta local",
+  "nodes": [
+    {
+      "parameters": {
+        "triggerOn": "folder",
+        "path": "C:\\Users\\chuwi\\n8n-entradas",
+        "events": ["add"],
+        "options": {
+          "awaitWriteFinish": true
+        }
+      },
+      "id": "lft-001",
+      "name": "Local File Trigger",
+      "type": "n8n-nodes-base.localFileTrigger",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const item = $input.first().json;\nconst path = String(item.path ?? item.fileName ?? item.name ?? '').trim();\nif (!path) {\n  throw new Error('El trigger no devolvió ruta de archivo. Revisa Local File Trigger.');\n}\n\nconst base = path.split(/[/\\\\]/).pop() || 'archivo';\nconst destDir = 'C:\\\\Users\\\\chuwi\\\\n8n-procesados';\nconst dest = `${destDir}\\\\${base}`;\n\nreturn [\n  {\n    json: {\n      sourcePath: path,\n      fileName: base,\n      destPath: dest,\n      destDir,\n      ahora: new Date().toLocaleString('es-ES'),\n    },\n  },\n];"
+      },
+      "id": "code-paths-001",
+      "name": "Preparar rutas",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [480, 300]
+    },
+    {
+      "parameters": {
+        "command": "=powershell -NoProfile -Command \"$destDir = '{{ $json.destDir }}'; if (-not (Test-Path -LiteralPath $destDir)) { New-Item -ItemType Directory -Force -Path $destDir | Out-Null }; Move-Item -LiteralPath '{{ $json.sourcePath }}' -Destination '{{ $json.destPath }}' -Force; Write-Output 'OK {{ $json.fileName }}'\""
+      },
+      "id": "exec-move-001",
+      "name": "Mover a Procesados",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [720, 300]
+    },
+    {
+      "parameters": {
+        "sendTo": "tu-correo@gmail.com",
+        "subject": "=📂 Archivo procesado — {{ $('Preparar rutas').item.json.fileName }}",
+        "emailType": "text",
+        "message": "=Se detectó un archivo nuevo y se movió a la carpeta de procesados.\n\nOrigen: {{ $('Preparar rutas').item.json.sourcePath }}\nDestino: {{ $('Preparar rutas').item.json.destPath }}\nHora: {{ $('Preparar rutas').item.json.ahora }}\n\nSalida comando:\n{{ $json.stdout || $json }}",
+        "options": {}
+      },
+      "id": "gmail-file-001",
+      "name": "Gmail aviso",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [960, 300],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "REEMPLAZAR_ID_CREDENCIAL",
+          "name": "Gmail account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Local File Trigger": {
+      "main": [[{ "node": "Preparar rutas", "type": "main", "index": 0 }]]
+    },
+    "Preparar rutas": {
+      "main": [[{ "node": "Mover a Procesados", "type": "main", "index": 0 }]]
+    },
+    "Mover a Procesados": {
+      "main": [[{ "node": "Gmail aviso", "type": "main", "index": 0 }]]
+    }
+  },
+  "pinData": {},
+  "settings": { "executionOrder": "v1" },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 1
+}
