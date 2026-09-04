@@ -2,7 +2,7 @@
 
 Guía para montar los 5 patrones de automatización de sistemas que propones, **adaptados a Windows** (PowerShell / CMD) y a n8n self-hosted (`npx n8n`). Incluye seguridad del nodo **Execute Command** y el nodo **SSH**.
 
-**Documentación completa** (RF/RNF, casos de uso, UML, Google Drive): [`documentacion-workflows-sistemas.md`](./documentacion-workflows-sistemas.md).
+**Documentación completa** (fichas qué hace/qué no, RF/RNF, casos de uso, UML, Google Drive): [`documentacion-workflows-sistemas.md`](./documentacion-workflows-sistemas.md) — empieza por [Fichas por workflow](./documentacion-workflows-sistemas.md#2-fichas-por-workflow-lectura-rápida) si no conoces el proyecto.
 
 **Arranque recomendado:** [`start-n8n.ps1`](./start-n8n.ps1).
 
@@ -17,6 +17,8 @@ Guía para montar los 5 patrones de automatización de sistemas que propones, **
 | [`workflows/rotar-backups.ps1`](./workflows/rotar-backups.ps1) | Script rotación `backup_*.zip` | Evita bug `$` en Execute Command |
 
 Los casos 4 (deploy Docker) y 5 (auditoría logs) siguen documentados abajo para montarlos a mano.
+
+**Fichas cortas (qué hace / qué no / backup / E-S):** [§2 de la documentación](./documentacion-workflows-sistemas.md#2-fichas-por-workflow-lectura-rápida).
 
 ---
 
@@ -171,7 +173,7 @@ Scripts: [`backup-carpeta.ps1`](./workflows/backup-carpeta.ps1), [`rotar-backups
 
 ### Google Drive
 
-Detalle completo: [`documentacion-workflows-sistemas.md`](./documentacion-workflows-sistemas.md#5-google-drive--configuración-completa).
+Detalle completo: [`documentacion-workflows-sistemas.md`](./documentacion-workflows-sistemas.md#6-google-drive--configuración-completa).
 
 #### A) Habilitar Google Drive API (si falta → 403)
 

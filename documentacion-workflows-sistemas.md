@@ -20,6 +20,8 @@ n8n de referencia: **2.22.6 (Self Hosted)** vía `npx n8n` / `start-n8n.ps1`.
 
 Cinco patrones de automatización de sistemas adaptados a Windows: monitor HTTP, backup local (+ nube), vigilancia de carpetas, deploy por webhook y auditoría de logs. Los tres primeros tienen JSON importable y pruebas locales documentadas.
 
+> **Empieza aquí si no has seguido el chat:** la sección [2. Fichas por workflow](#2-fichas-por-workflow-lectura-rápida) resume qué hace / qué no hace / entradas-salidas de cada uno.
+
 ```mermaid
 flowchart TB
   subgraph runtime [Runtime n8n Windows]
@@ -41,7 +43,83 @@ flowchart TB
 
 ---
 
-## 2. Requisitos funcionales (RF)
+## 2. Fichas por workflow (lectura rápida)
+
+Pensadas para alguien que **no** ha seguido la conversación de configuración. La guía paso a paso está en [`configurar-workflows-sistemas.md`](./configurar-workflows-sistemas.md).
+
+### 2.1 Uptime / Health Check
+
+| | |
+|--|--|
+| **Archivo** | [`workflows/sistemas-uptime-health.json`](./workflows/sistemas-uptime-health.json) |
+| **Qué hace** | Cada **5 minutos** hace un GET HTTP a una URL configurada. Si el código no es 200 (o hay error de red), envía un **email Gmail** de alerta. Si todo va bien, **no** envía correo. |
+| **Qué no hace** | No hace ping por defecto; no mira contenido HTML ni latencia SLA; no reinicia servicios; no sustituye a UptimeRobot/Prometheus. Una sola URL por ejecución (hay que duplicar el flujo o parametrizar para varias). |
+| **Tipo de backup** | N/A |
+| **Entradas** | Schedule 5 min; URL y nombre en nodo «Definir objetivo» (ej. `http://localhost:5678`). Credencial Gmail. |
+| **Salidas** | Email solo si falla; datos internos `ok` / `statusCode` en el flujo. |
+| **Estado** | Probado en local. |
+
+### 2.2 Backup local + rotación + Google Drive
+
+| | |
+|--|--|
+| **Archivo** | [`workflows/sistemas-backup-rotacion.json`](./workflows/sistemas-backup-rotacion.json) + [`backup-carpeta.ps1`](./workflows/backup-carpeta.ps1) + [`rotar-backups.ps1`](./workflows/rotar-backups.ps1) |
+| **Qué hace** | Cada día (~03:00) comprime **toda** la carpeta origen en un ZIP nuevo, lo sube a **Google Drive**, borra ZIP locales con más de **N días** (default 7) y manda un email de confirmación (con enlace Drive si el upload corrió en esa ejecución). |
+| **Qué no hace** | No hace backup de bases de datos (MySQL/Postgres) salvo que tú añadas otro script; no cifra el ZIP; no verifica integridad del ZIP; no restaura automáticamente. |
+| **Tipo de backup** | **Completa (full)** en cada ejecución: cada `backup_*.zip` es un snapshot íntegro de la carpeta. **No** es incremental ni diferencial. La «rotación» es solo **retención** (borrar full antiguos), no un esquema encadenado. |
+| **Entradas** | Carpetas `n8n-backup-origen` → `n8n-backups`; Schedule; scripts `.ps1`; OAuth Gmail + Google Drive; Drive API habilitada; allow-list de ficheros. |
+| **Salidas** | ZIP en disco; archivo en carpeta Drive; email con rutas, rotación (`deleted=…`) y enlace Drive. |
+| **Estado** | Cadena Parsear → Leer ZIP → Drive → Rotacion → Gmail documentada y probada. |
+
+### 2.3 Vigilancia de carpeta local
+
+| | |
+|--|--|
+| **Archivo** | [`workflows/sistemas-vigilancia-carpeta.json`](./workflows/sistemas-vigilancia-carpeta.json) |
+| **Qué hace** | Cuando aparece un **archivo nuevo** en `n8n-entradas`, lo **mueve** a `n8n-procesados` y envía un email con origen/destino. |
+| **Qué no hace** | No parsea CSV ni OCR por defecto (solo está esbozado en la guía); no vigila subcarpetas de forma avanzada; no procesa el contenido del fichero; no sube a Drive. |
+| **Tipo de backup** | N/A (es movimiento de archivo, no copia de seguridad). |
+| **Entradas** | Local File Trigger (evento *add*) sobre la carpeta entradas; Execute Command (mover); Gmail. Requiere `NODES_EXCLUDE=[]`. |
+| **Salidas** | Archivo en `n8n-procesados`; email de confirmación. |
+| **Estado** | Probado (p. ej. PDF movido + email). |
+
+### 2.4 Deploy (Webhook + git / Docker)
+
+| | |
+|--|--|
+| **Archivo** | **No hay JSON importable**; solo patrón en la guía operativa. |
+| **Qué hace** | (Diseño) Recibe un Webhook (p. ej. push a `main`), ejecuta un script local (`git pull` + `docker compose up -d`) y avisa por email/Telegram. |
+| **Qué no hace** | No está montado ni probado en este repo; no expone el webhook sin túnel HTTPS; no es un CD completo (tests, rollback, secretos). |
+| **Tipo de backup** | N/A |
+| **Entradas** | Webhook GitHub + script de deploy en disco + (opcional) túnel. |
+| **Salidas** | App/contenedor actualizado + notificación. |
+| **Estado** | Solo documentación manual. |
+
+### 2.5 Auditoría de logs / intentos de login
+
+| | |
+|--|--|
+| **Archivo** | **No hay JSON importable**; solo patrón en la guía operativa. |
+| **Qué hace** | (Diseño) Periódicamente lee eventos de seguridad (p. ej. fallos de login) y alerta si supera un umbral. |
+| **Qué no hace** | No está montado ni probado aquí; no bloquea IPs por defecto (y no debería sin cuidado); no sustituye a un SIEM. |
+| **Tipo de backup** | N/A |
+| **Entradas** | Schedule + acceso a logs/Visor de eventos + umbral. |
+| **Salidas** | Email crítico si hay anomalía. |
+| **Estado** | Solo documentación manual. |
+
+### Resumen rápido
+
+| # | Workflow | JSON | Backup |
+|---|----------|------|--------|
+| 1 | Uptime | Sí | — |
+| 2 | Backup + Drive | Sí | **Full** + retención 7 días |
+| 3 | Carpeta | Sí | — |
+| 4 | Deploy | No | — |
+| 5 | Logs | No | — |
+
+---
+
+## 3. Requisitos funcionales (RF)
 
 | ID | Requisito | Workflow | Estado |
 |----|-----------|----------|--------|
@@ -60,7 +138,7 @@ flowchart TB
 
 ---
 
-## 3. Requisitos no funcionales (RNF)
+## 4. Requisitos no funcionales (RNF)
 
 | ID | Tipo | Requisito |
 |----|------|-----------|
@@ -73,7 +151,7 @@ flowchart TB
 | RNF-07 | Observabilidad | Confirmación o alerta por Gmail (`gracobjo@gmail.com` en entorno de prueba) |
 | RNF-08 | Retención | Backups locales con rotación configurable (default 7 días) |
 | RNF-09 | Integración | Google Drive OAuth2 + **Google Drive API** habilitada en el proyecto de Google Cloud |
-| RNF-10 | Usabilidad | Nodo Drive desactivado en el JSON importable hasta configurar carpeta/API/credencial |
+| RNF-10 | Usabilidad | Fichas «qué hace / qué no hace» en §2 para onboarding sin contexto del chat |
 
 ### Variables de entorno persistidas (Usuario Windows)
 
@@ -102,7 +180,7 @@ npx n8n
 
 ---
 
-## 4. Casos de uso
+## 5. Casos de uso
 
 | ID | Actor | Caso de uso | Flujo principal | Resultado |
 |----|-------|-------------|-----------------|-----------|
@@ -137,9 +215,9 @@ npx n8n
 
 ---
 
-## 5. Google Drive — configuración completa
+## 6. Google Drive — configuración completa
 
-### 5.1 Habilitar Google Drive API (obligatorio)
+### 6.1 Habilitar Google Drive API (obligatorio)
 
 Sin esto el upload falla con **403** aunque el OAuth de Gmail/Sheets funcione.
 
@@ -151,7 +229,7 @@ Sin esto el upload falla con **403** aunque el OAuth de Gmail/Sheets funcione.
 
 Scopes habituales del nodo: acceso a archivos de Drive del usuario autenticado (no hace falta Service Account para el caso personal).
 
-### 5.2 Credencial en n8n
+### 6.2 Credencial en n8n
 
 | Campo | Valor |
 |-------|--------|
@@ -159,7 +237,7 @@ Scopes habituales del nodo: acceso a archivos de Drive del usuario autenticado (
 | Cuenta de prueba | misma familia que Gmail (`gracobjo@gmail.com`) |
 | Consent | Pantalla OAuth del mismo proyecto Cloud |
 
-### 5.3 Carpeta destino
+### 6.3 Carpeta destino
 
 1. En [drive.google.com](https://drive.google.com) crea p. ej. `n8n-backups`.
 2. Entra en la carpeta; URL:
@@ -171,7 +249,7 @@ https://drive.google.com/drive/folders/18NmjbymVBtT4BTQuIHUg-7kEhFBswO2r
 3. Copia solo el ID: `18NmjbymVBtT4BTQuIHUg-7kEhFBswO2r`  
    **No** uses la URL de «Mi unidad» (`.../my-drive`).
 
-### 5.4 Nodos y parámetros (canvas)
+### 6.4 Nodos y parámetros (canvas)
 
 ```text
 Parsear ruta ZIP
@@ -204,13 +282,13 @@ Si Drive no está cableado entre Parsear y Rotación, el email dirá *«no ejecu
 - Drive debe estar **en la cadena** del Test workflow; un Execute step suelto no cuenta para el email.
 - Tras Drive, `$json` ya no trae `backupDir`: Rotacion lee `$('Parsear ruta ZIP')` o usa el `.ps1` con esos args.
 
-### 5.5 Trampa Execute Command + `$` (rotación)
+### 6.5 Trampa Execute Command + `$` (rotación)
 
 En campos Command con modo expresión (`=` / fx), n8n interpreta tokens como `$dir`, `$days`, `$limit` como variables n8n. Quedan vacíos y PowerShell falla (`$days = ;`, rutas partidas con `\n7`).
 
 **Correcto:** llamar a [`rotar-backups.ps1`](./workflows/rotar-backups.ps1) con `-BackupDir` / `-DaysToKeep`, o escapar dólares PowerShell como `$$` en la expresión.
 
-### 5.6 Diagrama de secuencia — upload Drive
+### 6.6 Diagrama de secuencia — upload Drive
 
 ```mermaid
 sequenceDiagram
@@ -233,9 +311,9 @@ sequenceDiagram
 
 ---
 
-## 6. Diagramas UML / flujos por workflow
+## 7. Diagramas UML / flujos por workflow
 
-### 6.1 Uptime
+### 7.1 Uptime
 
 ```mermaid
 flowchart LR
@@ -245,7 +323,7 @@ flowchart LR
   I -->|sí| X[Fin]
 ```
 
-### 6.2 Backup + rotación (+ Drive)
+### 7.2 Backup + rotación (+ Drive)
 
 ```mermaid
 flowchart LR
@@ -258,7 +336,7 @@ flowchart LR
   ROT --> G[Gmail + enlace Drive]
 ```
 
-### 6.3 Vigilancia de carpeta
+### 7.3 Vigilancia de carpeta
 
 ```mermaid
 flowchart LR
@@ -266,7 +344,7 @@ flowchart LR
   M --> G[Gmail]
 ```
 
-### 6.4 Diagrama de componentes
+### 7.4 Diagrama de componentes
 
 ```mermaid
 flowchart TB
@@ -282,7 +360,7 @@ flowchart TB
   N8N --> HTTP[Endpoints HTTP locales]
 ```
 
-### 6.5 Casos de uso (UML)
+### 7.5 Casos de uso (UML)
 
 ```mermaid
 flowchart LR
@@ -297,7 +375,7 @@ flowchart LR
 
 ---
 
-## 7. Carpetas locales de trabajo
+## 8. Carpetas locales de trabajo
 
 | Carpeta | Uso |
 |---------|-----|
@@ -309,7 +387,7 @@ flowchart LR
 
 ---
 
-## 8. Matriz de pruebas (entorno local)
+## 9. Matriz de pruebas (entorno local)
 
 | Prueba | Resultado |
 |--------|-----------|
@@ -322,7 +400,7 @@ flowchart LR
 
 ---
 
-## 9. Historial de configuración (2026-09-04)
+## 10. Historial de configuración (2026-09-04)
 
 - Habilitados Local File Trigger / Execute Command con `NODES_EXCLUDE='[]'`.
 - Allow-list de ficheros ampliada con `N8N_RESTRICT_FILE_ACCESS_TO`.
@@ -333,3 +411,4 @@ flowchart LR
 - Email Gmail: quitada nota «Drive desactivado»; muestra enlace si el nodo se ejecutó.
 - Cadena obligatoria Parsear → Leer ZIP → Drive → Rotacion (Drive suelto no cuenta).
 - Rotación migrada a `rotar-backups.ps1` por conflicto `$` en Execute Command.
+- Añadidas fichas por workflow (§2): qué hace / qué no hace / tipo de backup / entradas-salidas.
