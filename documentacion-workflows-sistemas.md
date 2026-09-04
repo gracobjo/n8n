@@ -53,12 +53,12 @@ Pensadas para alguien que **no** ha seguido la conversación de configuración. 
 | | |
 |--|--|
 | **Archivo** | [`workflows/sistemas-uptime-health.json`](./workflows/sistemas-uptime-health.json) |
-| **Qué hace** | Cada **5 minutos** hace un GET HTTP a una URL configurada. Si el código no es 200 (o hay error de red), envía un **email Gmail** de alerta. Si todo va bien, **no** envía correo. |
+| **Qué hace** | Cada **5 minutos** hace un GET HTTP a una URL configurada. Si el código no es 200–399 (o hay error de red), envía **email Gmail y Telegram** en paralelo. Si todo va bien, **no** notifica. |
 | **Qué no hace** | No hace ping por defecto; no mira contenido HTML ni latencia SLA; no reinicia servicios; no sustituye a UptimeRobot/Prometheus. Una sola URL por ejecución (hay que duplicar el flujo o parametrizar para varias). |
 | **Tipo de backup** | N/A |
-| **Entradas** | Schedule 5 min; URL y nombre en nodo «Definir objetivo» (ej. `http://localhost:5678`). Credencial Gmail. |
-| **Salidas** | Email solo si falla; datos internos `ok` / `statusCode` en el flujo. |
-| **Estado** | Probado en local. |
+| **Entradas** | Schedule 5 min; URL, nombre y `chatId` en «Definir objetivo»; credenciales Gmail + Telegram. |
+| **Salidas** | Email + Telegram solo si falla; datos internos `ok` / `statusCode`. |
+| **Estado** | Probado HTTP; Telegram cableado en el JSON (configurar chatId + credencial). |
 
 ### 2.2 Backup local + rotación + Google Drive
 
@@ -138,7 +138,7 @@ Pensadas para alguien que **no** ha seguido la conversación de configuración. 
 | ID | Requisito | Workflow | Estado |
 |----|-----------|----------|--------|
 | RF-01 | Comprobar cada N minutos que un endpoint HTTP responde 200 | Uptime | Probado (`localhost:5678`) |
-| RF-02 | Si el status ≠ 200 (o error de red), enviar alerta Gmail | Uptime | Probado |
+| RF-02 | Si el status ≠ 200 (o error de red), enviar alerta Gmail **y Telegram** | Uptime | JSON con ambos canales |
 | RF-03 | Crear ZIP diario de una carpeta origen | Backup | Probado |
 | RF-04 | Rotar ZIP antiguos (`backup_*.zip` > N días) | Backup | Probado |
 | RF-05 | Notificar por Gmail el resultado del backup (ruta ZIP, retención) | Backup | Probado |
@@ -334,8 +334,9 @@ sequenceDiagram
 ```mermaid
 flowchart LR
   S[Schedule 5 min] --> H[HTTP Request]
-  H --> I{statusCode == 200?}
-  I -->|no| G[Gmail alerta]
+  H --> I{status ok?}
+  I -->|no| G[Gmail]
+  I -->|no| T[Telegram]
   I -->|sí| X[Fin]
 ```
 

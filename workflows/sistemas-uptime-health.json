@@ -16,7 +16,7 @@
       "name": "Schedule Trigger",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
-      "position": [240, 300]
+      "position": [200, 300]
     },
     {
       "parameters": {
@@ -33,6 +33,12 @@
               "name": "nombre",
               "value": "n8n local",
               "type": "string"
+            },
+            {
+              "id": "a3",
+              "name": "chatId",
+              "value": "PEGAR_CHAT_ID",
+              "type": "string"
             }
           ]
         },
@@ -42,7 +48,7 @@
       "name": "Definir objetivo",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
-      "position": [460, 300]
+      "position": [420, 300]
     },
     {
       "parameters": {
@@ -61,19 +67,19 @@
       "name": "HTTP health check",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [680, 300],
+      "position": [640, 300],
       "onError": "continueRegularOutput"
     },
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const meta = $('Definir objetivo').item.json;\nconst res = $input.first().json;\n\nconst statusCode = Number(res.statusCode ?? res.status ?? 0);\nconst ok = statusCode >= 200 && statusCode < 400;\n\nreturn [\n  {\n    json: {\n      nombre: meta.nombre,\n      url: meta.url,\n      statusCode,\n      ok,\n      ahora: new Date().toLocaleString('es-ES'),\n      error: res.error ?? res.message ?? '',\n    },\n  },\n];"
+        "jsCode": "const meta = $('Definir objetivo').item.json;\nconst res = $input.first().json;\n\nconst statusCode = Number(res.statusCode ?? res.status ?? 0);\nconst ok = statusCode >= 200 && statusCode < 400;\n\nreturn [\n  {\n    json: {\n      nombre: meta.nombre,\n      url: meta.url,\n      chatId: meta.chatId,\n      statusCode,\n      ok,\n      ahora: new Date().toLocaleString('es-ES', { timeZone: 'Europe/Madrid' }),\n      error: res.error ?? res.message ?? '',\n    },\n  },\n];"
       },
       "id": "code-eval-uptime-001",
       "name": "Evaluar respuesta",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [900, 300]
+      "position": [860, 300]
     },
     {
       "parameters": {
@@ -102,7 +108,7 @@
       "name": "IF caido",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [1120, 300]
+      "position": [1080, 300]
     },
     {
       "parameters": {
@@ -116,11 +122,31 @@
       "name": "Gmail alerta",
       "type": "n8n-nodes-base.gmail",
       "typeVersion": 2.1,
-      "position": [1340, 200],
+      "position": [1320, 180],
       "credentials": {
         "gmailOAuth2": {
           "id": "REEMPLAZAR_ID_CREDENCIAL",
           "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chatId }}",
+        "text": "=⚠️ Uptime — {{ $json.nombre }} no responde\n\nURL: {{ $json.url }}\nStatus HTTP: {{ $json.statusCode }}\nHora: {{ $json.ahora }}\nDetalle: {{ $json.error }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "id": "tg-uptime-001",
+      "name": "Telegram alerta",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1320, 400],
+      "credentials": {
+        "telegramApi": {
+          "id": "REEMPLAZAR_ID_CREDENCIAL",
+          "name": "Telegram account"
         }
       }
     }
@@ -140,13 +166,19 @@
     },
     "IF caido": {
       "main": [
-        [{ "node": "Gmail alerta", "type": "main", "index": 0 }],
+        [
+          { "node": "Gmail alerta", "type": "main", "index": 0 },
+          { "node": "Telegram alerta", "type": "main", "index": 0 }
+        ],
         []
       ]
     }
   },
   "pinData": {},
-  "settings": { "executionOrder": "v1" },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Madrid"
+  },
   "staticData": null,
   "tags": [],
   "triggerCount": 1

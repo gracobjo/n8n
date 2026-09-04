@@ -99,26 +99,29 @@ n8n usa por defecto `America/New_York` si no se configura nada.
 | Solo probar a mano | Añade **Manual Trigger** en paralelo al Schedule, o usa Test workflow |
 | Varias veces al día | Schedule → otro intervalo (horas/minutos) o varios triggers |
 | Cron fino | Schedule → Custom cron, ej. `0 9 * * 1-5` (laborables 09:00) |
-| Misma alerta que Gmail | Tras el IF de uptime/backup/scraping, añade otro nodo Telegram con el mismo texto |
+| Misma alerta que Gmail | Ya en uptime: IF caído → Gmail + Telegram en paralelo ([`sistemas-uptime-health.json`](./workflows/sistemas-uptime-health.json)) |
 | Resumen diario | Schedule 08:00 → leer Sheets/estado → un solo `Send Message` |
 
-### Ejemplo: alerta de uptime también a Telegram
-
-En el workflow de uptime, después del IF “caído”:
+### Uptime con Telegram (incluido en el JSON)
 
 ```text
 IF caído
   → Gmail alerta
-  → Telegram Send Message   (mismo chatId / otro)
+  → Telegram alerta   (mismo item: nombre, url, statusCode, chatId)
 ```
 
-Texto ejemplo:
+En **Definir objetivo** rellena `chatId`. Texto del nodo Telegram:
 
 ```text
-⚠️ Caído: {{ $('Definir objetivo').item.json.nombre }}
-URL: {{ $('Definir objetivo').item.json.url }}
+⚠️ Uptime — {{ $json.nombre }} no responde
+
+URL: {{ $json.url }}
+Status HTTP: {{ $json.statusCode }}
+Hora: {{ $json.ahora }}
+Detalle: {{ $json.error }}
 ```
 
+Para probar: URL temporal inválida → Test → debe llegar Telegram → restaura URL → Publish.
 ---
 
 ## Qué hace / qué no hace

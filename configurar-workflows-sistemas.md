@@ -84,24 +84,31 @@ powershell -NoProfile -Command "TU_COMANDO_AQUI"
 
 ### Objetivo
 
-Cada pocos minutos comprobar URLs (y opcionalmente ping al router). Si fallan → Gmail.
+Cada pocos minutos comprobar URLs (y opcionalmente ping al router). Si fallan → **Gmail + Telegram**.
 
 ### Flujo
 
 ```text
 Schedule (5 min)
-  → Definir objetivo (URL)
+  → Definir objetivo (URL, nombre, chatId)
   → HTTP Request (GET, neverError)
   → Evaluar ok / statusCode
-  → IF caído → Gmail alerta
+  → IF caído
+       → Gmail alerta
+       → Telegram alerta   (en paralelo)
 ```
 
-### Importar
+### Importar / actualizar
 
-1. Importa `workflows/sistemas-uptime-health.json`.
-2. Cambia la URL de prueba por la tuya (`http://localhost:5678` o tu web).
-3. Credencial Gmail + destinatario.
-4. Publish.
+1. Importa (o reimporta) [`workflows/sistemas-uptime-health.json`](./workflows/sistemas-uptime-health.json).
+2. Nodo **Definir objetivo**:
+   - `url` / `nombre` → tu servicio
+   - `chatId` → tu chat de Telegram (p. ej. `328226271`)
+3. Credencial **Gmail** + destinatario en Gmail alerta.
+4. Credencial **Telegram** en Telegram alerta (misma que el mensaje programado).
+5. Para probar la alerta sin tumbar n8n: pon temporalmente una URL falsa (`http://127.0.0.1:1`) → Test → deberían llegar email y Telegram → vuelve a la URL real → Publish.
+
+Detalle de bot / chat_id / timezone: [`configurar-telegram-mensajes.md`](./configurar-telegram-mensajes.md).
 
 ### Prueba realizada
 
@@ -118,7 +125,7 @@ Salida válida de «Evaluar respuesta»:
 }
 ```
 
-Con `ok: true` no se envía email (correcto).
+Con `ok: true` no se envía email ni Telegram (correcto).
 
 ### Variantes Windows
 
@@ -434,7 +441,7 @@ No hace falta agente n8n en el servidor destino.
 
 | # | Trigger | Acción clave | Alerta | JSON |
 |---|---------|--------------|--------|------|
-| 1 Uptime | Schedule 5 min | HTTP 200 / ping | Gmail | `sistemas-uptime-health.json` |
+| 1 Uptime | Schedule 5 min | HTTP 200 / ping | Gmail + Telegram | `sistemas-uptime-health.json` |
 | 2 Backup | Schedule 03:00 | zip + rotación (+ Drive opcional) | Gmail | `sistemas-backup-rotacion.json` |
 | 3 Carpeta | Local File Trigger | Mover a procesados | Gmail | `sistemas-vigilancia-carpeta.json` |
 | 4 Deploy | Webhook GitHub | `git pull` + docker | Gmail/Telegram | (manual) |
