@@ -12,7 +12,7 @@ Guía para montar los 5 patrones de automatización de sistemas que propones, **
 |---------|------|--------|
 | [`workflows/sistemas-uptime-health.json`](./workflows/sistemas-uptime-health.json) | Monitor HTTP + alerta Gmail | Probado (HTTP 200 en n8n local) |
 | [`workflows/sistemas-vigilancia-carpeta.json`](./workflows/sistemas-vigilancia-carpeta.json) | Local File Trigger → mover a Procesados | Probado (PDF + email) |
-| [`workflows/sistemas-backup-rotacion.json`](./workflows/sistemas-backup-rotacion.json) | ZIP diario + rotación 7 días + Drive + Gmail | Cadena completa documentada |
+| [`workflows/sistemas-backup-rotacion.json`](./workflows/sistemas-backup-rotacion.json) | ZIP full/diff/incr + skip + Drive + Gmail/Telegram | Hash + modos documentados |
 | [`workflows/backup-carpeta.ps1`](./workflows/backup-carpeta.ps1) | Script PowerShell de ZIP | Auxiliar |
 | [`workflows/rotar-backups.ps1`](./workflows/rotar-backups.ps1) | Script rotación `backup_*.zip` | Evita bug `$` en Execute Command |
 
@@ -146,129 +146,88 @@ Cuerpo: status, error, hora.
 
 ---
 
-## 2. Copias de seguridad con rotación
+## 2. Copias de seguridad (full / diferencial / incremental + skip por hash)
 
 ### Objetivo
 
-Backup diario → comprimir ZIP local → (opcional) Google Drive → borrar ZIPs locales > N días → Gmail.
+Cada noche (~03:00): **hashear** el contenido de la carpeta origen. Si no hay cambios → **no** ZIP ni Drive. Si hay cambios → generar ZIP (**full**, **diferencial** o **incremental**), subir a Drive, rotar retención y avisar por Gmail + Telegram.
+
+### Tipos de copia
+
+| Modo | Nombre ZIP | Contenido | Baseline |
+|------|------------|-----------|----------|
+| **full** | `backup_full_*.zip` | Todos los ficheros | Actualiza baseline de full y de “último backup” |
+| **differential** | `backup_diff_*.zip` | Solo ficheros nuevos/cambiados **desde el último full** | Actualiza “último backup”; no cambia el full |
+| **incremental** | `backup_incr_*.zip` | Solo ficheros nuevos/cambiados **desde el último backup** (cualquier modo) | Actualiza “último backup” |
+| **auto** (default) | — | Si hash igual → **skip**. Si no hay full o pasaron `fullEveryDays` (7) → **full**. Si no → **differential** | — |
+
+Estado en disco: `n8n-backups\.backup-state\` (`state.json`, `manifest-*.json` con SHA-256 por fichero).
 
 ### Flujo (JSON importable)
 
 ```text
 Schedule (03:00)
-  → Rutas backup
-  → Crear ZIP (backup-carpeta.ps1)
-  → Parsear ruta ZIP
-  → Leer ZIP disco
-  → Subir a Google Drive
-  → Rotacion +7 dias (rotar-backups.ps1)
-  → Gmail backup OK (con enlace Drive)
+  → Rutas backup (sourcePath, backupDir, mode=auto, fullEveryDays, chatId)
+  → Ejecutar backup (backup-carpeta.ps1)
+  → Parsear resultado (JSON)
+  → IF ZIP creado
+       → sí: Leer ZIP → Drive → Rotación → Gmail + Telegram OK
+       → no: Gmail + Telegram “sin cambios” (sin Drive)
 ```
 
-### Importar
+### Importar / actualizar
 
-1. Crea las carpetas:
-   - `C:\Users\chuwi\n8n-backup-origen` ← mete aquí lo que quieras respaldar
-   - `C:\Users\chuwi\n8n-backups` ← se crea sola si falta
-2. Arranca n8n con [`start-n8n.ps1`](./start-n8n.ps1) (hace falta **Execute Command** + allow-list de carpetas).
-3. Importa [`workflows/sistemas-backup-rotacion.json`](./workflows/sistemas-backup-rotacion.json).
-4. En **Rutas backup**, ajusta `sourcePath`, `backupDir` y `daysToKeep` si quieres.
-5. Credencial Gmail + Drive + tu correo; comprueba que la cadena incluya Drive.
-6. **Test workflow** (no hace falta esperar a las 03:00).
-7. Publish.
+1. Carpetas: `n8n-backup-origen`, `n8n-backups`.
+2. Arranque con [`start-n8n.ps1`](./start-n8n.ps1).
+3. Reimporta [`workflows/sistemas-backup-rotacion.json`](./workflows/sistemas-backup-rotacion.json).
+4. En **Rutas backup**:
+   - `mode`: `auto` | `full` | `differential` | `incremental`
+   - `fullEveryDays`: `7`
+   - `chatId`: tu Telegram
+5. Credenciales Gmail, Drive, Telegram.
+6. Test → Publish.
 
 Scripts: [`backup-carpeta.ps1`](./workflows/backup-carpeta.ps1), [`rotar-backups.ps1`](./workflows/rotar-backups.ps1).
 
+### Retención (`rotar-backups.ps1`)
+
+| Patrón | Días por defecto |
+|--------|------------------|
+| `backup_full_*.zip` | 28 |
+| `backup_diff_*.zip` | 14 |
+| `backup_incr_*.zip` | 7 |
+| `backup_*.zip` legado | `daysToKeep` del workflow (7) |
+
 ### Google Drive
 
-Detalle completo: [`documentacion-workflows-sistemas.md`](./documentacion-workflows-sistemas.md#6-google-drive--configuración-completa).
+Detalle: [`documentacion-workflows-sistemas.md`](./documentacion-workflows-sistemas.md#6-google-drive--configuración-completa).
 
-#### A) Habilitar Google Drive API (si falta → 403)
+Solo se ejecuta la rama Drive si `status=created`. Parent Drive `root`, Folder `18NmjbymVBtT4BTQuIHUg-7kEhFBswO2r`.
 
-1. [Google Cloud Console](https://console.cloud.google.com/) → proyecto OAuth de n8n (prueba: `947509817186`).
-2. **APIs & Services → Library** → **Google Drive API** → **Enable**.
-3. Si sigue 403: Credentials → Google Drive → **Reconnect** / reautorizar.
-
-#### B) Carpeta destino
-
-URL de ejemplo ya usada:
-
-```text
-https://drive.google.com/drive/folders/18NmjbymVBtT4BTQuIHUg-7kEhFBswO2r
-```
-
-ID (solo esto): `18NmjbymVBtT4BTQuIHUg-7kEhFBswO2r` — **no** la URL de «Mi unidad».
-
-#### C) Flujo de nodos (obligatorio en el canvas)
-
-El email con *«no ejecutado»* aparece si Drive **no está en la cadena** (aunque lo hayas ejecutado a mano antes). Debe ser:
-
-```text
-Parsear ruta ZIP
-  → Leer ZIP disco (Read/Write Files)
-  → Subir a Google Drive   ← activo, no gris
-  → Rotacion +7 dias
-  → Gmail backup OK
-```
-
-En el canvas:
-
-1. **Borra** el cable `Parsear ruta ZIP` → `Rotacion +7 dias` (si existe).
-2. Conecta en ese orden: Parsear → Leer ZIP → Drive → Rotacion → Gmail.
-3. Clic derecho en Drive → **Activate** (si sigue disabled).
-4. En **Rotacion**, usa rutas desde Parsear:
-   - `{{ $('Parsear ruta ZIP').item.json.backupDir }}`
-   - `{{ $('Parsear ruta ZIP').item.json.daysToKeep }}`
-   (tras Drive el `$json` ya no lleva `backupDir`).
-5. **Test workflow** completo: en Executions, Drive debe aparecer en verde.
-
-| Nodo | Parámetro | Valor |
-|------|-----------|--------|
-| Leer ZIP | File(s) Selector | `{{ $json.zipPathPosix }}` (sin espacio delante; con `/`) |
-| Leer ZIP | Put Output File in Field | `data` |
-| Drive | File / Upload | Input field = `data` |
-| Drive | File Name | `{{ $('Parsear ruta ZIP').item.json.fileName }}` |
-| Drive | Parent Drive | **By ID** = `root` |
-| Drive | Parent Folder | **By ID** = `18NmjbymVBtT4BTQuIHUg-7kEhFBswO2r` |
-
-**From list** en gris es normal; no hace falta. Un espacio delante de la ruta → `No file(s) found`. Arranque con allow-list vía `start-n8n.ps1` o las variables de Usuario.
-
-#### D) Texto del email Gmail (sin la nota antigua)
-
-En **Gmail backup OK → Message**, el cuerpo debe acabar con el enlace de Drive (no con «nodo desactivado»):
-
-```text
-Google Drive: {{ $('Subir a Google Drive').isExecuted ? ($('Subir a Google Drive').item.json.webViewLink || ('https://drive.google.com/open?id=' + $('Subir a Google Drive').item.json.id)) : 'no ejecutado (nodo desactivado o sin conectar en esta ejecución)' }}
-```
-
-Si el upload ya funciona (p. ej. [archivo en Drive](https://drive.google.com/open?id=1Fbhy6xTmLwObIrq5RJBsK2gekhleHg6x&usp=drive_copy)) pero el correo sigue mostrando la nota vieja, es solo texto fijo del nodo: edítalo o reimporta el JSON actualizado.
-
-### PowerShell equivalente (referencia)
-
-Rotación vía script (recomendado desde el nodo Execute Command; evita que n8n “coma” `$dir`/`$days`):
+### PowerShell a mano
 
 ```powershell
-powershell -NoProfile -File C:\Users\chuwi\Documents\n8n\workflows\rotar-backups.ps1 -BackupDir "C:\Users\chuwi\n8n-backups" -DaysToKeep 7
+# Auto (skip / full semanal / diff diario)
+powershell -NoProfile -File C:\Users\chuwi\Documents\n8n\workflows\backup-carpeta.ps1 -Mode auto
+
+# Forzar modos
+powershell -NoProfile -File C:\Users\chuwi\Documents\n8n\workflows\backup-carpeta.ps1 -Mode full
+powershell -NoProfile -File C:\Users\chuwi\Documents\n8n\workflows\backup-carpeta.ps1 -Mode differential
+powershell -NoProfile -File C:\Users\chuwi\Documents\n8n\workflows\backup-carpeta.ps1 -Mode incremental
+
+# Rotación
+powershell -NoProfile -File C:\Users\chuwi\Documents\n8n\workflows\rotar-backups.ps1 -BackupDir "$env:USERPROFILE\n8n-backups"
 ```
 
-En el nodo **Rotacion +7 dias** (modo Expression `fx`):
+### Restauración (concepto)
 
-```text
-powershell -NoProfile -File "C:\Users\chuwi\Documents\n8n\workflows\rotar-backups.ps1" -BackupDir "{{ $('Parsear ruta ZIP').item.json.backupDir }}" -DaysToKeep {{ $('Parsear ruta ZIP').item.json.daysToKeep }}
-```
-
-No pongas la lógica de rotación en `-Command "... $dir = ..."` dentro de un campo `=`: n8n interpreta `$dir`/`$days` y rompe el comando.
+- **Full solo:** descomprimir el `backup_full_*.zip`.
+- **Full + diferencial:** descomprimir el full y encima el último `backup_diff_*.zip`.
+- **Full + incrementales:** descomprimir el full y luego cada `backup_incr_*.zip` en orden cronológico hasta la fecha deseada.
 
 ### Base de datos
 
-Si usas MySQL/Postgres, mejor un `.ps1` con `mysqldump` / `pg_dump` y que n8n ejecute solo:
-
-```text
-powershell -NoProfile -File C:\Scripts\backup-db.ps1
-```
-
-(secretos fuera del workflow).
-
+Si usas MySQL/Postgres, mejor un `.ps1` con `mysqldump` / `pg_dump` (secretos fuera del workflow).
 ---
 
 ## 3. Vigilancia de carpetas (Local File Trigger)
@@ -442,7 +401,7 @@ No hace falta agente n8n en el servidor destino.
 | # | Trigger | Acción clave | Alerta | JSON |
 |---|---------|--------------|--------|------|
 | 1 Uptime | Schedule 5 min | HTTP 200 / ping | Gmail + Telegram | `sistemas-uptime-health.json` |
-| 2 Backup | Schedule 03:00 | zip + rotación (+ Drive opcional) | Gmail | `sistemas-backup-rotacion.json` |
+| 2 Backup | Schedule 03:00 | hash + full/diff/incr + Drive | Gmail+Telegram | `sistemas-backup-rotacion.json` |
 | 3 Carpeta | Local File Trigger | Mover a procesados | Gmail | `sistemas-vigilancia-carpeta.json` |
 | 4 Deploy | Webhook GitHub | `git pull` + docker | Gmail/Telegram | (manual) |
 | 5 Logs | Schedule 1 h | Eventos 4625 / auth.log | Gmail crítico | (manual) |

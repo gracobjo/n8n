@@ -65,12 +65,12 @@ Pensadas para alguien que **no** ha seguido la conversación de configuración. 
 | | |
 |--|--|
 | **Archivo** | [`workflows/sistemas-backup-rotacion.json`](./workflows/sistemas-backup-rotacion.json) + [`backup-carpeta.ps1`](./workflows/backup-carpeta.ps1) + [`rotar-backups.ps1`](./workflows/rotar-backups.ps1) |
-| **Qué hace** | Cada día (~03:00) comprime **toda** la carpeta origen en un ZIP nuevo, lo sube a **Google Drive**, borra ZIP locales con más de **N días** (default 7) y manda un email de confirmación (con enlace Drive si el upload corrió en esa ejecución). |
-| **Qué no hace** | No hace backup de bases de datos (MySQL/Postgres) salvo que tú añadas otro script; no cifra el ZIP; no verifica integridad del ZIP; no restaura automáticamente. |
-| **Tipo de backup** | **Completa (full)** en cada ejecución: cada `backup_*.zip` es un snapshot íntegro de la carpeta. **No** es incremental ni diferencial. La «rotación» es solo **retención** (borrar full antiguos), no un esquema encadenado. |
-| **Entradas** | Carpetas `n8n-backup-origen` → `n8n-backups`; Schedule; scripts `.ps1`; OAuth Gmail + Google Drive; Drive API habilitada; allow-list de ficheros. |
-| **Salidas** | ZIP en disco; archivo en carpeta Drive; email con rutas, rotación (`deleted=…`) y enlace Drive. |
-| **Estado** | Cadena Parsear → Leer ZIP → Drive → Rotacion → Gmail documentada y probada. |
+| **Qué hace** | Hashea la carpeta origen (SHA-256 por fichero). Si no hay cambios → **omite** ZIP y Drive. Si hay cambios → ZIP **full**, **diferencial** o **incremental**, sube a Drive, rota retención y avisa por Gmail + Telegram. Modo `auto`: full cada 7 días, resto differential. |
+| **Qué no hace** | No hace backup de bases de datos salvo otro script; no cifra; no restaura solo; no versiona borrados como “tombstones” en diff/incr (un borrado masivo puede forzar full). |
+| **Tipo de backup** | **Full + diferencial + incremental**, con **skip por hash**. Ver tabla de modos en la guía operativa. |
+| **Entradas** | `n8n-backup-origen` → `n8n-backups`; `mode` / `fullEveryDays` / `chatId`; scripts `.ps1`; Gmail + Drive + Telegram. |
+| **Salidas** | ZIP `backup_full|diff|incr_*.zip` o skip; estado en `.backup-state\`; Drive solo si `created`; email/Telegram. |
+| **Estado** | Scripts probados (full/diff/incr/skip); JSON con rama IF actualizado. |
 
 ### 2.3 Vigilancia de carpeta local
 
@@ -125,7 +125,7 @@ Pensadas para alguien que **no** ha seguido la conversación de configuración. 
 | # | Workflow | JSON | Backup |
 |---|----------|------|--------|
 | 1 | Uptime | Sí | — |
-| 2 | Backup + Drive | Sí | **Full** + retención 7 días |
+| 2 | Backup + Drive | Sí | **Full + diff + incr** + skip por hash |
 | 3 | Carpeta | Sí | — |
 | 4 | Deploy | No | — |
 | 5 | Logs | No | — |
@@ -139,10 +139,11 @@ Pensadas para alguien que **no** ha seguido la conversación de configuración. 
 |----|-----------|----------|--------|
 | RF-01 | Comprobar cada N minutos que un endpoint HTTP responde 200 | Uptime | Probado (`localhost:5678`) |
 | RF-02 | Si el status ≠ 200 (o error de red), enviar alerta Gmail **y Telegram** | Uptime | JSON con ambos canales |
-| RF-03 | Crear ZIP diario de una carpeta origen | Backup | Probado |
-| RF-04 | Rotar ZIP antiguos (`backup_*.zip` > N días) | Backup | Probado |
-| RF-05 | Notificar por Gmail el resultado del backup (ruta ZIP, retención) | Backup | Probado |
-| RF-06 | Subir el ZIP a una carpeta de Google Drive (opcional) | Backup | Configurado (API + OAuth) |
+| RF-03 | Crear ZIP de carpeta origen (full / diff / incr según modo) | Backup | Probado (scripts) |
+| RF-04 | Rotar ZIP por tipo (full/diff/incr/legado) | Backup | Probado |
+| RF-05 | Notificar Gmail (+ Telegram) resultado o skip | Backup | JSON actualizado |
+| RF-06 | Subir ZIP a Drive solo si se creó uno nuevo | Backup | Rama IF |
+| RF-14 | Omitir ZIP/Drive si el hash de contenido no cambió | Backup | Probado |
 | RF-07 | Detectar archivo nuevo en carpeta de entradas | Carpeta | Probado |
 | RF-08 | Mover el archivo a carpeta procesados y avisar por Gmail | Carpeta | Probado |
 | RF-09 | Ejecutar comandos PowerShell locales de forma controlada | Backup / Carpeta | Requiere `NODES_EXCLUDE=[]` |
@@ -164,7 +165,7 @@ Pensadas para alguien que **no** ha seguido la conversación de configuración. 
 | RNF-05 | Operación | Arranque reproducible vía `start-n8n.ps1` y variables de entorno de **Usuario** Windows |
 | RNF-06 | Disponibilidad | Workflows Publish; Schedule / Local File Trigger activos tras reinicio de n8n |
 | RNF-07 | Observabilidad | Confirmación o alerta por Gmail (`gracobjo@gmail.com` en entorno de prueba) |
-| RNF-08 | Retención | Backups locales con rotación configurable (default 7 días) |
+| RNF-08 | Retención | Full 28d / diff 14d / incr 7d (configurable en `rotar-backups.ps1`) |
 | RNF-09 | Integración | Google Drive OAuth2 + **Google Drive API** habilitada en el proyecto de Google Cloud |
 | RNF-10 | Usabilidad | Fichas «qué hace / qué no hace» en §2 para onboarding sin contexto del chat |
 
@@ -345,12 +346,14 @@ flowchart LR
 ```mermaid
 flowchart LR
   S[Schedule 03:00] --> R[Rutas backup]
-  R --> Z[Crear ZIP]
-  Z --> P[Parsear ruta ZIP]
-  P --> RD[Leer ZIP disco]
-  RD --> DR[Google Drive Upload]
+  R --> Z[backup-carpeta.ps1]
+  Z --> P[Parsear JSON]
+  P --> I{ZIP creado?}
+  I -->|sí| RD[Leer ZIP]
+  RD --> DR[Drive]
   DR --> ROT[rotar-backups.ps1]
-  ROT --> G[Gmail + enlace Drive]
+  ROT --> G[Gmail+Telegram]
+  I -->|no skip| SK[Gmail+Telegram sin cambios]
 ```
 
 ### 7.3 Vigilancia de carpeta
@@ -430,3 +433,4 @@ flowchart LR
 - Rotación migrada a `rotar-backups.ps1` por conflicto `$` en Execute Command.
 - Añadidas fichas por workflow (§2): qué hace / qué no hace / tipo de backup / entradas-salidas.
 - `GENERIC_TIMEZONE=Europe/Madrid` en arranque; guía Telegram con mapa «dónde se configura» (chat_id, credencial, timezone workflow vs nodo).
+- Backup: hash SHA-256 por fichero, skip si sin cambios, modos full/differential/incremental (`auto` = full semanal + diff diario).
