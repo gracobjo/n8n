@@ -1,5 +1,5 @@
 // Pegar en nodo "Extraer y comparar" (Run Once for All Items)
-// Compara campo a campo (no el blob entero) y genera resumenDiff para el email.
+// Compara campo a campo (huellas normalizadas) y genera resumenDiff para el email.
 const fila = $('Iterar convocatorias').item.json;
 const url = String(fila.URL ?? '').trim();
 const nombre = String(fila.Nombre ?? 'Convocatoria JCyL').trim();
@@ -25,10 +25,7 @@ const ENTITY_MAP = {
   ntilde: 'ñ',
 };
 
-/** Etiquetas volátiles / ruido: no disparan alerta semántica */
-const IGNORE_LABELS = [
-  /^contenido publicado( el)?$/i,
-];
+const IGNORE_LABELS = [/^contenido publicado( el)?$/i];
 
 function decodeEntities(text) {
   let s = String(text);
@@ -58,7 +55,6 @@ function normKey(text) {
     .toLowerCase();
 }
 
-/** Etiqueta semántica: quita artículos y unifica variantes («Fecha de publicación» ≈ «Fecha publicación»). */
 function normLabel(text) {
   let s = stripHtml(text)
     .normalize('NFD')
@@ -66,7 +62,6 @@ function normLabel(text) {
     .toLowerCase()
     .replace(/:+$/g, '')
     .trim();
-  // Si viene «Sección — Campo», comparar por el campo (hoja)
   const parts = s.split(/\s*[—–\-]\s*/);
   s = (parts[parts.length - 1] || s).trim();
   s = s
@@ -95,6 +90,16 @@ function shouldIgnoreLabel(etiqueta) {
   return IGNORE_LABELS.some((re) => re.test(k)) || IGNORE_LABELS.some((re) => re.test(normKey(etiqueta)));
 }
 
+/** Ruido típico del HTML JCyL (enlaces "Incluye", textos vacíos). */
+function isJunkValor(etiqueta, valor) {
+  const l = normLabel(etiqueta);
+  const v = normVal(valor);
+  if (!v) return true;
+  if (/^incluye:?$/.test(v)) return true;
+  if (/^informacion adicional$/.test(l) && (v.length < 25 || /^incluye\b/.test(v))) return true;
+  return false;
+}
+
 function extractCamposFromHtml(sourceHtml, origen = 'principal') {
   const campos = [];
   const seen = new Set();
@@ -104,6 +109,7 @@ function extractCamposFromHtml(sourceHtml, origen = 'principal') {
     let v = stripHtml(valor).replace(/^:+\s*/, '').trim();
     if (!e || !v) return;
     if (shouldIgnoreLabel(e)) return;
+    if (isJunkValor(e, v)) return;
     if (v.length > maxLen) v = `${v.slice(0, maxLen)}…`;
     const fp = fingerprint(origen, e, v);
     if (seen.has(fp)) return;
@@ -149,11 +155,7 @@ function extractCamposFromHtml(sourceHtml, origen = 'principal') {
       const cuerpo = match[2].replace(/<script[\s\S]*?<\/script>/gi, '');
 
       if (/convocatoria a la que pertenece/i.test(titulo)) continue;
-
-      if (/contenido publicado el/i.test(titulo)) {
-        // Ignorado por IGNORE_LABELS (ruido de página)
-        continue;
-      }
+      if (/contenido publicado el/i.test(titulo)) continue;
 
       if (/^fecha límite$/i.test(titulo) || /^información adicional$/i.test(titulo)) {
         add(titulo, cuerpo, 180);
@@ -202,6 +204,7 @@ function parseEstadoToEntries(estadoText) {
     const valor = s.slice(idx + 1).trim();
     if (!etiqueta || !valor) continue;
     if (shouldIgnoreLabel(etiqueta)) continue;
+    if (isJunkValor(etiqueta, valor)) continue;
     const fp = fingerprint(origen, etiqueta, valor);
     if (seen.has(fp)) continue;
     seen.add(fp);
@@ -259,6 +262,8 @@ function diffEntries(antes, ahora) {
 
 const campos = extractCamposFromHtml(html, 'principal');
 let faseFetchFailed = false;
+let faseFetchedOk = false;
+const faseCampos = [];
 
 const adicionales = String(fila.URLs_Adicionales ?? fila['URLs_Adicionales'] ?? '')
   .split(';')
@@ -278,13 +283,15 @@ for (const extraUrl of adicionales) {
       typeof extraHtml === 'string'
         ? extraHtml
         : (extraHtml?.data ?? extraHtml?.body ?? String(extraHtml ?? ''));
-    campos.push(...extractCamposFromHtml(body, 'fase'));
+    faseFetchedOk = true;
+    faseCampos.push(...extractCamposFromHtml(body, 'fase'));
   } catch {
     faseFetchFailed = true;
   }
 }
 
-const estadoActual = camposToEstado(campos);
+campos.push(...faseCampos);
+
 const estadoAnterior =
   fila.Ultima_Fecha_Extraida ??
   fila['Ultima_Fecha_Extraida'] ??
@@ -293,8 +300,27 @@ const estadoAnterior =
 const esBaseline =
   estadoAnterior === 'Pendiente' || String(estadoAnterior).trim() === '';
 
-// Si falló una URL de fase, no alertar ni envenenar el snapshot con un falso "cambio"
-if (faseFetchFailed && !esBaseline) {
+const prevEntries = parseEstadoToEntries(estadoAnterior);
+const prevFase = prevEntries.filter((e) => e.origen === 'fase');
+
+// Si había datos de fase y esta vez no salió ninguno (fallo HTTP o regex vacío),
+// no borramos el snapshot de fase ni alertamos por "desaparición".
+let faseCarriedForward = false;
+if (!esBaseline && prevFase.length > 0 && faseCampos.length === 0) {
+  faseCarriedForward = true;
+  for (const e of prevFase) {
+    if (campos.some((c) => c.key === e.key)) continue;
+    campos.push({
+      origen: e.origen,
+      etiqueta: e.etiqueta,
+      valor: e.valor,
+      key: e.key,
+      labelKey: e.labelKey,
+    });
+  }
+}
+
+if (faseFetchFailed && !esBaseline && !faseCarriedForward) {
   return [
     {
       json: {
@@ -313,16 +339,25 @@ if (faseFetchFailed && !esBaseline) {
   ];
 }
 
-const mapAntes = parseEstadoToEntries(estadoAnterior);
+const estadoActual = camposToEstado(campos);
+const mapAntes = prevEntries;
 const mapAhora = parseEstadoToEntries(estadoActual);
-const diffLines = esBaseline ? [] : diffEntries(mapAntes, mapAhora);
+let diffLines = esBaseline ? [] : diffEntries(mapAntes, mapAhora);
+
+// Si solo "cambiaron" cosas por carry-forward/ruido ya filtrado, no alertar
+if (faseCarriedForward) {
+  diffLines = diffLines.filter((line) => !/\[fase\]/i.test(line));
+}
+
 const hayDiffSemantico = diffLines.length > 0;
 const cambio = !esBaseline && hayDiffSemantico;
 const resumenDiff = esBaseline
   ? '(baseline: primera captura, sin alerta)'
   : hayDiffSemantico
     ? diffLines.join('\n')
-    : '(sin diferencias de campos tras normalizar)';
+    : faseCarriedForward
+      ? `(sin diferencias; fase reutilizada del snapshot anterior; fetchOk=${faseFetchedOk})`
+      : '(sin diferencias de campos tras normalizar)';
 
 return [
   {
@@ -335,6 +370,7 @@ return [
       esBaseline,
       resumenDiff,
       hayDiffSemantico,
+      faseCarriedForward,
       ahora: new Date().toLocaleString('es-ES', { timeZone: 'Europe/Madrid' }),
       row_number: fila.row_number,
     },

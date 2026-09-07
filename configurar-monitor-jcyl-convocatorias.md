@@ -294,10 +294,14 @@ La alerta solo salta si hay **diferencias de campos** tras normalizar. Mira prim
 | Comparar el blob entero | Reorden / espacios → email casi idéntico | Diff por huellas de campo |
 | `Fecha de publicación` vs `Fecha publicación` | Falsa alta+baja de fechas | Misma etiqueta normalizada |
 | Map que pisaba duplicados | Solo quedaba una de dos fechas de publicación | Multivalor por fingerprint |
+| `Información adicional: Incluye` / `Incluye:` | Ruido HTML → falsa diferencia | Filtrado como junk |
+| Desaparición de `[fase] Fecha segundo ejercicio` | Fallo/regex vacío en URL adicional → alerta | Se **reutiliza** el snapshot de fase si esta corrida no extrajo fase |
 | `Contenido publicado el` | Ruido de página | Ignorado (`IGNORE_LABELS`) |
-| Fallo puntual de URL de fase | `[fase] Error…` vs datos → alerta | No alerta; no pisa snapshot |
+| Fallo HTTP de URL de fase | Alerta por cambio | No alerta; no pisa snapshot |
 
-Tras actualizar el script: pega de nuevo `extraer-jcyl-code.js` en el nodo o reimporta el JSON.### Nodo 9 — Actualizar fila (Google Sheets)
+**Importante:** el correo debe incluir la sección `QUÉ CAMBIÓ` con `{{ $json.resumenDiff }}`. Si tu Gmail aún no la tiene, actualiza el Message del nodo (el email de Soporte Libre sin esa sección usaba plantilla antigua).
+
+Tras actualizar: pega de nuevo [`workflows/extraer-jcyl-code.js`](./workflows/extraer-jcyl-code.js) en **Extraer y comparar**.### Nodo 9 — Actualizar fila (Google Sheets)
 
 Conecta **Gmail → aquí** y **IF false → aquí**. Luego **Actualizar fila → Iterar convocatorias** (cierra el bucle).
 
