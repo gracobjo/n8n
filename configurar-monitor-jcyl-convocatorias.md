@@ -312,6 +312,9 @@ Convocatoria: {{ $json.titulo }}
 URL: {{ $json.url }}
 Comprobado: {{ $json.ahora }}
 
+--- QUÉ CAMBIÓ (campo a campo) ---
+{{ $json.resumenDiff }}
+
 --- ESTADO ANTERIOR ---
 {{ $json.estadoAnterior }}
 
@@ -319,6 +322,19 @@ Comprobado: {{ $json.ahora }}
 {{ $json.estadoActual }}
 ```
 
+La alerta solo salta si hay **diferencias de campos** (altas/bajas/cambios de valor) tras normalizar. No basta con que el texto concatenado “se vea distinto” por orden o ruido.
+
+**Falsos positivos habituales (antes):**
+
+| Causa | Efecto |
+|-------|--------|
+| Comparar el blob entero | Reordenación de campos o espacios → email de “cambio” casi idéntico |
+| `Contenido publicado el` | Metadato de página volátil |
+| Fallo puntual de URL de fase | Antes: `[fase] Error…` vs datos reales → falsa alerta |
+
+**Ahora:** comparación mapa etiqueta→valor; se ignora “Contenido publicado el”; si falla una URL de fase no se alerta ni se pisa el snapshot.
+
+Tras actualizar, pega de nuevo [`workflows/extraer-jcyl-code.js`](./workflows/extraer-jcyl-code.js) en el nodo **Extraer y comparar** (o reimporta el JSON).
 ### Nodo 9 — Actualizar fila (Google Sheets)
 
 Conecta **Gmail → aquí** y **IF false → aquí**. Luego **Actualizar fila → Iterar convocatorias** (cierra el bucle).

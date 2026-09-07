@@ -1,4 +1,5 @@
 // Pegar en nodo "Extraer y comparar" (Run Once for All Items)
+// Compara campo a campo (no el blob entero) y genera resumenDiff para el email.
 const fila = $('Iterar convocatorias').item.json;
 const url = String(fila.URL ?? '').trim();
 const nombre = String(fila.Nombre ?? 'Convocatoria JCyL').trim();
@@ -24,6 +25,11 @@ const ENTITY_MAP = {
   ntilde: 'ñ',
 };
 
+/** Etiquetas volátiles / ruido: no disparan alerta semántica */
+const IGNORE_LABELS = [
+  /^contenido publicado el$/i,
+];
+
 function decodeEntities(text) {
   let s = String(text);
   s = s.replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)));
@@ -44,7 +50,28 @@ function stripHtml(text) {
   );
 }
 
-function extractEstadoFromHtml(sourceHtml, origen = 'principal') {
+function normKey(text) {
+  return stripHtml(text)
+    .replace(/:+$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+function normVal(text) {
+  return stripHtml(text)
+    .replace(/\u2026/g, '...')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+function shouldIgnoreLabel(etiqueta) {
+  const k = normKey(etiqueta);
+  return IGNORE_LABELS.some((re) => re.test(k));
+}
+
+function extractCamposFromHtml(sourceHtml, origen = 'principal') {
   const campos = [];
   const seen = new Set();
 
@@ -52,14 +79,19 @@ function extractEstadoFromHtml(sourceHtml, origen = 'principal') {
     const e = stripHtml(etiqueta).replace(/:+$/, '').trim();
     let v = stripHtml(valor).replace(/^:+\s*/, '').trim();
     if (!e || !v) return;
+    if (shouldIgnoreLabel(e)) return;
     if (v.length > maxLen) v = `${v.slice(0, maxLen)}…`;
-    const key = `${e}: ${v}`;
+    const key = normKey(`${origen} — ${e}`);
     if (seen.has(key)) return;
     seen.add(key);
-    campos.push(key);
+    campos.push({
+      origen,
+      etiqueta: e,
+      valor: v,
+      key,
+    });
   };
 
-  // Página principal: agrupar por sección <h2>
   const sectionRegex = /<h2[^>]*>([^<]+)<\/h2>([\s\S]*?)(?=<h2|<\/main|$)/gi;
   let sectionMatch;
   while ((sectionMatch = sectionRegex.exec(sourceHtml)) !== null) {
@@ -74,7 +106,6 @@ function extractEstadoFromHtml(sourceHtml, origen = 'principal') {
     }
   }
 
-  // Fallback principal sin h2
   if (origen === 'principal' && campos.length === 0) {
     const regexHtml = /<strong>([^<:]+):<\/strong>\s*([^<]*)/gi;
     let match;
@@ -85,7 +116,6 @@ function extractEstadoFromHtml(sourceHtml, origen = 'principal') {
     }
   }
 
-  // Página de fase: solo bloques útiles (sin resolución completa)
   if (origen === 'fase') {
     const regexH2 = /<h2[^>]*>([^<]+)<\/h2>\s*([\s\S]*?)(?=<h2|<\/main|$)/gi;
     let match;
@@ -96,10 +126,7 @@ function extractEstadoFromHtml(sourceHtml, origen = 'principal') {
       if (/convocatoria a la que pertenece/i.test(titulo)) continue;
 
       if (/contenido publicado el/i.test(titulo)) {
-        add(
-          'Contenido publicado el',
-          titulo.replace(/contenido publicado el\s*/i, ''),
-        );
+        // Ignorado por IGNORE_LABELS (ruido de página)
         continue;
       }
 
@@ -113,16 +140,74 @@ function extractEstadoFromHtml(sourceHtml, origen = 'principal') {
       /Convocar[\s\S]{0,400}?(\d{1,2}\s+de\s+[a-záéíóúñ]+\s+de\s+\d{4}\s+a\s+las\s+\d{1,2}:\d{2})/i,
     );
     if (ejercicioMatch) add('Fecha segundo ejercicio', ejercicioMatch[1], 80);
-
-    const pubMatch = textoPlano.match(/Contenido publicado el\s+(\d{1,2}\s+de\s+[a-záéíóúñ]+\s+de\s+\d{4})/i);
-    if (pubMatch) add('Contenido publicado el', pubMatch[1], 40);
   }
 
-  if (campos.length === 0) return `[${origen}] No se encontraron fechas`;
-  return `[${origen}] ${campos.join(' | ')}`;
+  return campos;
 }
 
-const partes = [extractEstadoFromHtml(html, 'principal')];
+function camposToEstado(campos) {
+  if (!campos.length) return 'No se encontraron fechas';
+  return [...campos]
+    .sort((a, b) => a.key.localeCompare(b.key))
+    .map((c) => `[${c.origen}] ${c.etiqueta}: ${c.valor}`)
+    .join(' | ');
+}
+
+function parseEstadoToMap(estadoText) {
+  const map = new Map();
+  const raw = String(estadoText ?? '').trim();
+  if (!raw || /^pendiente$/i.test(raw)) return map;
+
+  const chunks = raw.split(/\s*\|\|\s*|\s*\|\s*/);
+  for (const chunk of chunks) {
+    let s = chunk.trim();
+    if (!s) continue;
+    let origen = 'principal';
+    const origenMatch = s.match(/^\[(principal|fase)\]\s*/i);
+    if (origenMatch) {
+      origen = origenMatch[1].toLowerCase();
+      s = s.slice(origenMatch[0].length);
+    }
+    if (/^error al leer/i.test(s) || /^no se encontraron fechas/i.test(s)) continue;
+
+    const idx = s.indexOf(':');
+    if (idx < 0) continue;
+    const etiqueta = s.slice(0, idx).trim();
+    const valor = s.slice(idx + 1).trim();
+    if (!etiqueta || !valor) continue;
+    if (shouldIgnoreLabel(etiqueta)) continue;
+    const key = normKey(`${origen} — ${etiqueta}`);
+    map.set(key, {
+      origen,
+      etiqueta,
+      valor,
+      nvalor: normVal(valor),
+    });
+  }
+  return map;
+}
+
+function diffMaps(antes, ahora) {
+  const lines = [];
+  const keys = new Set([...antes.keys(), ...ahora.keys()]);
+  for (const key of [...keys].sort()) {
+    const a = antes.get(key);
+    const b = ahora.get(key);
+    if (!a && b) {
+      lines.push(`+ [${b.origen}] ${b.etiqueta}: ${b.valor}`);
+    } else if (a && !b) {
+      lines.push(`- [${a.origen}] ${a.etiqueta}: ${a.valor}`);
+    } else if (a && b && a.nvalor !== b.nvalor) {
+      lines.push(`~ [${b.origen}] ${b.etiqueta}:`);
+      lines.push(`    antes: ${a.valor}`);
+      lines.push(`    ahora: ${b.valor}`);
+    }
+  }
+  return lines;
+}
+
+const campos = extractCamposFromHtml(html, 'principal');
+let faseFetchFailed = false;
 
 const adicionales = String(fila.URLs_Adicionales ?? fila['URLs_Adicionales'] ?? '')
   .split(';')
@@ -142,36 +227,51 @@ for (const extraUrl of adicionales) {
       typeof extraHtml === 'string'
         ? extraHtml
         : (extraHtml?.data ?? extraHtml?.body ?? String(extraHtml ?? ''));
-    partes.push(extractEstadoFromHtml(body, 'fase'));
+    campos.push(...extractCamposFromHtml(body, 'fase'));
   } catch {
-    partes.push('[fase] Error al leer URL adicional');
+    faseFetchFailed = true;
   }
 }
 
-const estadoActual = partes.join(' || ');
-
+const estadoActual = camposToEstado(campos);
 const estadoAnterior =
   fila.Ultima_Fecha_Extraida ??
   fila['Ultima_Fecha_Extraida'] ??
   'Pendiente';
 
-function normalizeEstadoForCompare(text) {
-  return String(text)
-    .replace(/\[principal\]\s*/gi, '')
-    .replace(/\[fase\]\s*/gi, '')
-    .replace(/\s*\|\|\s*/g, ' | ')
-    .replace(/::+/g, ':')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .toLowerCase();
-}
-
 const esBaseline =
   estadoAnterior === 'Pendiente' || String(estadoAnterior).trim() === '';
-const cambio =
-  !esBaseline &&
-  normalizeEstadoForCompare(estadoAnterior) !==
-    normalizeEstadoForCompare(estadoActual);
+
+// Si falló una URL de fase, no alertar ni envenenar el snapshot con un falso "cambio"
+if (faseFetchFailed && !esBaseline) {
+  return [
+    {
+      json: {
+        url,
+        titulo: nombre,
+        estadoActual: estadoAnterior,
+        estadoAnterior,
+        cambio: false,
+        esBaseline: false,
+        resumenDiff: '(omitido: error al leer URL adicional de fase)',
+        hayDiffSemantico: false,
+        ahora: new Date().toLocaleString('es-ES', { timeZone: 'Europe/Madrid' }),
+        row_number: fila.row_number,
+      },
+    },
+  ];
+}
+
+const mapAntes = parseEstadoToMap(estadoAnterior);
+const mapAhora = parseEstadoToMap(estadoActual);
+const diffLines = esBaseline ? [] : diffMaps(mapAntes, mapAhora);
+const hayDiffSemantico = diffLines.length > 0;
+const cambio = !esBaseline && hayDiffSemantico;
+const resumenDiff = esBaseline
+  ? '(baseline: primera captura, sin alerta)'
+  : hayDiffSemantico
+    ? diffLines.join('\n')
+    : '(sin diferencias de campos tras normalizar)';
 
 return [
   {
@@ -182,7 +282,9 @@ return [
       estadoAnterior,
       cambio,
       esBaseline,
-      ahora: new Date().toLocaleString('es-ES'),
+      resumenDiff,
+      hayDiffSemantico,
+      ahora: new Date().toLocaleString('es-ES', { timeZone: 'Europe/Madrid' }),
       row_number: fila.row_number,
     },
   },
