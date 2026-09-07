@@ -150,7 +150,7 @@
         "sendTo": "tu-correo@gmail.com",
         "subject": "=[JCyL] Cambio — {{ $json.titulo }}",
         "emailType": "text",
-        "message": "=Se detectó un cambio en una convocatoria de empleo público de JCyL.\n\nConvocatoria: {{ .titulo }}\nURL: {{ .url }}\nComprobado: {{ .ahora }}\n\n--- QUÉ CAMBIÓ (campo a campo) ---\n{{ .resumenDiff }}\n\n--- ESTADO ANTERIOR ---\n{{ .estadoAnterior }}\n\n--- ESTADO ACTUAL ---\n{{ .estadoActual }}\n\nRevisa la página para ver el detalle.",
+        "message": "=Se detectó un cambio en una convocatoria de empleo público de JCyL.\n\nConvocatoria: {{ $json.titulo }}\nURL: {{ $json.url }}\nComprobado: {{ $json.ahora }}\n\n--- QUÉ CAMBIÓ (campo a campo) ---\n{{ $json.resumenDiff }}\n\n--- ESTADO ANTERIOR ---\n{{ $json.estadoAnterior }}\n\n--- ESTADO ACTUAL ---\n{{ $json.estadoActual }}\n\nRevisa la página para ver el detalle.",
         "options": {}
       },
       "id": "gmail-001",
