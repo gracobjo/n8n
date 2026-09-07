@@ -219,75 +219,9 @@ Header opcional: `User-Agent` de navegador.
 
 ### Nodo 6 — Extraer y comparar (Code)
 
-```javascript
-const fila = $('Iterar convocatorias').item.json;
-const url = String(fila.URL ?? '').trim();
-const nombre = String(fila.Nombre ?? 'Convocatoria JCyL').trim();
+Pega el contenido de [`workflows/extraer-jcyl-code.js`](./workflows/extraer-jcyl-code.js) (modo **Run Once for All Items**).
 
-const html =
-  $input.first().json.data ??
-  $input.first().json.body ??
-  '';
-
-function stripHtml(text) {
-  return String(text)
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-const campos = [];
-const regexHtml = /<strong>([^<:]+):<\/strong>\s*([^<]*)/gi;
-let match;
-
-while ((match = regexHtml.exec(html)) !== null) {
-  const etiqueta = stripHtml(match[1]);
-  const valor = stripHtml(match[2]);
-  if (!etiqueta || !valor) continue;
-  if (/fecha|plazo|límite|publicación|información adicional/i.test(etiqueta)) {
-    campos.push(`${etiqueta}: ${valor}`);
-  }
-}
-
-if (campos.length === 0) {
-  const regexMarkdown = /\*\*([^*]+):\*\*\s*([^\n*]+)/g;
-  while ((match = regexMarkdown.exec(html)) !== null) {
-    const etiqueta = match[1].trim();
-    const valor = match[2].trim();
-    if (/fecha|plazo|límite|publicación|información adicional/i.test(etiqueta)) {
-      campos.push(`${etiqueta}: ${valor}`);
-    }
-  }
-}
-
-const estadoActual =
-  campos.length > 0 ? campos.join(' | ') : 'No se encontraron fechas';
-
-const estadoAnterior =
-  fila.Ultima_Fecha_Extraida ??
-  fila['Ultima_Fecha_Extraida'] ??
-  'Pendiente';
-
-const esBaseline =
-  estadoAnterior === 'Pendiente' || String(estadoAnterior).trim() === '';
-const cambio = !esBaseline && estadoAnterior !== estadoActual;
-
-return [
-  {
-    json: {
-      url,
-      titulo: nombre,
-      estadoActual,
-      estadoAnterior,
-      cambio,
-      esBaseline,
-      ahora: new Date().toLocaleString('es-ES'),
-      row_number: fila.row_number,
-    },
-  },
-];
-```
+Compara **campo a campo** (mapa etiqueta→valor normalizado), no el texto entero. Expone `cambio`, `resumenDiff`, `hayDiffSemantico`.
 
 > El nodo **Iterar convocatorias** debe llamarse exactamente así (el Code lo referencia).
 
