@@ -250,7 +250,21 @@ cuando ambas fechas siguen presentes (caso Técnico-a Gestión Informática PI, 
 
 Varios valores bajo la misma etiqueta (p. ej. dos fechas de publicación) se **conservan** (no se pisan en un Map).
 
-Salida del nodo: `cambio`, `resumenDiff`, `hayDiffSemantico`, `estadoActual`, `estadoAnterior`.
+Salida del nodo: `cambio`, `resumenDiff`, `hayDiffSemantico`, `onlyFaseBootstrap`, `faseCarriedForward`, `estadoActual`, `estadoAnterior`.
+
+### Matriz: cuándo hay email
+
+| Situación | `cambio` | Email |
+|-----------|----------|-------|
+| Primera captura (`Pendiente`) | `false` | No (baseline) |
+| Solo reorden / `[principal]` / redacción de etiqueta | `false` | No |
+| Junk `Información adicional: Incluye` | `false` | No (filtrado) |
+| Snapshot sin `[fase]` y aparecen solo `+ [fase]…` | `false` (`onlyFaseBootstrap`) | No; sí actualiza hoja |
+| Había `[fase]` y esta vez no se extrajo | `false` (`faseCarriedForward`) | No; reutiliza fase anterior |
+| Cambia un plazo/fecha de valor (`~`) o alta/baja real en principal | `true` | **Sí** |
+| Cambia la fecha del segundo ejercicio (valor distinto) | `true` | **Sí** |
+
+**Comprobación OK (2026-09-07):** *Técnico-a Gestión Informática (PI)* → `resumenDiff: (sin diferencias de campos tras normalizar)`, `cambio: false` pese a distinto orden y prefijos `[principal]`.
 
 > El nodo **Iterar convocatorias** debe llamarse exactamente así (el Code lo referencia).
 
