@@ -27,7 +27,7 @@ const ENTITY_MAP = {
 
 /** Etiquetas volátiles / ruido: no disparan alerta semántica */
 const IGNORE_LABELS = [
-  /^contenido publicado el$/i,
+  /^contenido publicado( el)?$/i,
 ];
 
 function decodeEntities(text) {
@@ -58,17 +58,41 @@ function normKey(text) {
     .toLowerCase();
 }
 
+/** Etiqueta semántica: quita artículos y unifica variantes («Fecha de publicación» ≈ «Fecha publicación»). */
+function normLabel(text) {
+  let s = stripHtml(text)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/:+$/g, '')
+    .trim();
+  // Si viene «Sección — Campo», comparar por el campo (hoja)
+  const parts = s.split(/\s*[—–\-]\s*/);
+  s = (parts[parts.length - 1] || s).trim();
+  s = s
+    .replace(/\b(de|del|la|el|los|las|un|una)\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return s;
+}
+
 function normVal(text) {
   return stripHtml(text)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
     .replace(/\u2026/g, '...')
     .replace(/\s+/g, ' ')
     .trim()
     .toLowerCase();
 }
 
+function fingerprint(origen, etiqueta, valor) {
+  return `${String(origen).toLowerCase()}|${normLabel(etiqueta)}|${normVal(valor)}`;
+}
+
 function shouldIgnoreLabel(etiqueta) {
-  const k = normKey(etiqueta);
-  return IGNORE_LABELS.some((re) => re.test(k));
+  const k = normLabel(etiqueta);
+  return IGNORE_LABELS.some((re) => re.test(k)) || IGNORE_LABELS.some((re) => re.test(normKey(etiqueta)));
 }
 
 function extractCamposFromHtml(sourceHtml, origen = 'principal') {
@@ -81,14 +105,15 @@ function extractCamposFromHtml(sourceHtml, origen = 'principal') {
     if (!e || !v) return;
     if (shouldIgnoreLabel(e)) return;
     if (v.length > maxLen) v = `${v.slice(0, maxLen)}…`;
-    const key = normKey(`${origen} — ${e}`);
-    if (seen.has(key)) return;
-    seen.add(key);
+    const fp = fingerprint(origen, e, v);
+    if (seen.has(fp)) return;
+    seen.add(fp);
     campos.push({
       origen,
       etiqueta: e,
       valor: v,
-      key,
+      key: fp,
+      labelKey: normLabel(e),
     });
   };
 
@@ -153,10 +178,11 @@ function camposToEstado(campos) {
     .join(' | ');
 }
 
-function parseEstadoToMap(estadoText) {
-  const map = new Map();
+function parseEstadoToEntries(estadoText) {
+  const entries = [];
+  const seen = new Set();
   const raw = String(estadoText ?? '').trim();
-  if (!raw || /^pendiente$/i.test(raw)) return map;
+  if (!raw || /^pendiente$/i.test(raw)) return entries;
 
   const chunks = raw.split(/\s*\|\|\s*|\s*\|\s*/);
   for (const chunk of chunks) {
@@ -176,31 +202,56 @@ function parseEstadoToMap(estadoText) {
     const valor = s.slice(idx + 1).trim();
     if (!etiqueta || !valor) continue;
     if (shouldIgnoreLabel(etiqueta)) continue;
-    const key = normKey(`${origen} — ${etiqueta}`);
-    map.set(key, {
+    const fp = fingerprint(origen, etiqueta, valor);
+    if (seen.has(fp)) continue;
+    seen.add(fp);
+    entries.push({
       origen,
       etiqueta,
       valor,
+      key: fp,
+      labelKey: normLabel(etiqueta),
       nvalor: normVal(valor),
     });
   }
-  return map;
+  return entries;
 }
 
-function diffMaps(antes, ahora) {
+function diffEntries(antes, ahora) {
+  const afterFp = new Map(ahora.map((e) => [e.key, e]));
+  const beforeFp = new Map(antes.map((e) => [e.key, e]));
+
+  const removed = antes.filter((e) => !afterFp.has(e.key));
+  const added = ahora.filter((e) => !beforeFp.has(e.key));
+
   const lines = [];
-  const keys = new Set([...antes.keys(), ...ahora.keys()]);
-  for (const key of [...keys].sort()) {
-    const a = antes.get(key);
-    const b = ahora.get(key);
-    if (!a && b) {
-      lines.push(`+ [${b.origen}] ${b.etiqueta}: ${b.valor}`);
-    } else if (a && !b) {
-      lines.push(`- [${a.origen}] ${a.etiqueta}: ${a.valor}`);
-    } else if (a && b && a.nvalor !== b.nvalor) {
-      lines.push(`~ [${b.origen}] ${b.etiqueta}:`);
+  const usedAdded = new Set();
+  const usedRemoved = new Set();
+
+  for (const a of removed) {
+    const match = added.find(
+      (b) =>
+        b.labelKey === a.labelKey &&
+        b.origen === a.origen &&
+        !usedAdded.has(b.key),
+    );
+    if (match) {
+      usedAdded.add(match.key);
+      usedRemoved.add(a.key);
+      lines.push(`~ [${match.origen}] ${a.etiqueta} → ${match.etiqueta}:`);
       lines.push(`    antes: ${a.valor}`);
-      lines.push(`    ahora: ${b.valor}`);
+      lines.push(`    ahora: ${match.valor}`);
+    }
+  }
+
+  for (const a of removed) {
+    if (!usedRemoved.has(a.key)) {
+      lines.push(`- [${a.origen}] ${a.etiqueta}: ${a.valor}`);
+    }
+  }
+  for (const b of added) {
+    if (!usedAdded.has(b.key)) {
+      lines.push(`+ [${b.origen}] ${b.etiqueta}: ${b.valor}`);
     }
   }
   return lines;
@@ -262,9 +313,9 @@ if (faseFetchFailed && !esBaseline) {
   ];
 }
 
-const mapAntes = parseEstadoToMap(estadoAnterior);
-const mapAhora = parseEstadoToMap(estadoActual);
-const diffLines = esBaseline ? [] : diffMaps(mapAntes, mapAhora);
+const mapAntes = parseEstadoToEntries(estadoAnterior);
+const mapAhora = parseEstadoToEntries(estadoActual);
+const diffLines = esBaseline ? [] : diffEntries(mapAntes, mapAhora);
 const hayDiffSemantico = diffLines.length > 0;
 const cambio = !esBaseline && hayDiffSemantico;
 const resumenDiff = esBaseline
