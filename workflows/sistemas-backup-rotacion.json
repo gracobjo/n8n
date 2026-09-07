@@ -148,7 +148,7 @@
         "folderId": {
           "__rl": true,
           "mode": "id",
-          "value": "18NmjbymVBtT4BTQuIHUg-7kEhFBswO2r"
+          "value": "PEGAR_ID_CARPETA_GOOGLE_DRIVE"
         },
         "options": {}
       },
@@ -163,7 +163,8 @@
           "name": "Google Drive account"
         }
       },
-      "disabled": false
+      "disabled": false,
+      "notes": "Parent Folder By ID = ID vigente de la carpeta Drive. Si borras la carpeta en Drive obtendrás 404; crea otra y pega el ID nuevo. root = My Drive."
     },
     {
       "parameters": {

@@ -226,7 +226,9 @@ npx n8n
 | Error | Causa | Acción |
 |-------|--------|--------|
 | `No file(s) found` | Espacio delante de la ruta, `\` sin normalizar, o carpeta fuera del allow-list | `trim` + `/` + `N8N_RESTRICT_FILE_ACCESS_TO` |
-| 403 Drive API | API no habilitada en el proyecto Cloud | Habilitar Google Drive API y reintentar / reconnect OAuth |
+| 403 Drive API | Google Drive API no habilitada en el proyecto Cloud | Enable API + reconnect OAuth |
+| 404 `File not found: <folderId>` | Parent Folder apunta a carpeta **borrada** o ID incorrecto | Crear carpeta nueva; pegar ID en el nodo |
+| Skip tras vaciar Drive | Hash local intacto (`status=skipped`) | Borrar `.backup-state` o `-Force` + reejecutar workflow |
 | From list gris | Lista de drives no cargada | Usar **By ID** (`root` + folder ID) |
 | Nodo no corre | Disabled en canvas | Activate / Enable |
 
@@ -256,15 +258,18 @@ Scopes habituales del nodo: acceso a archivos de Drive del usuario autenticado (
 
 ### 6.3 Carpeta destino
 
-1. En [drive.google.com](https://drive.google.com) crea p. ej. `n8n-backups`.
+1. En [drive.google.com](https://drive.google.com) crea p. ej. `n8n-backups` (si la borraste, **crea otra**: el ID cambia).
 2. Entra en la carpeta; URL:
 
 ```text
-https://drive.google.com/drive/folders/18NmjbymVBtT4BTQuIHUg-7kEhFBswO2r
+https://drive.google.com/drive/folders/<ID_DE_TU_CARPETA>
 ```
 
-3. Copia solo el ID: `18NmjbymVBtT4BTQuIHUg-7kEhFBswO2r`  
-   **No** uses la URL de «Mi unidad» (`.../my-drive`).
+3. Copia solo el ID tras `/folders/`.  
+   **No** uses la URL de «Mi unidad» (`.../my-drive`).  
+   Un ID de carpeta eliminada provoca `404 File not found: <id>`.
+
+Ejemplo histórico (invalidado si se borró la carpeta): `18NmjbymVBtT4BTQuIHUg-7kEhFBswO2r`.
 
 ### 6.4 Nodos y parámetros (canvas)
 
@@ -288,7 +293,7 @@ Si Drive no está cableado entre Parsear y Rotación, el email dirá *«no ejecu
 | Google Drive | Input Data Field Name | `data` |
 | Google Drive | File Name | `{{ $('Parsear ruta ZIP').item.json.fileName }}` |
 | Google Drive | Parent Drive | **By ID** = `root` |
-| Google Drive | Parent Folder | **By ID** = `18NmjbymVBtT4BTQuIHUg-7kEhFBswO2r` |
+| Google Drive | Parent Folder | **By ID** = ID **vigente** de tu carpeta (no uno borrado) |
 | Rotacion +7 dias | Command | `-File ...\rotar-backups.ps1` (no `-Command` con `$dir`/`$days`) |
 | Gmail backup OK | Message | Enlace Drive vía `$('Subir a Google Drive').isExecuted` + `id` / `webViewLink` |
 
@@ -416,7 +421,8 @@ flowchart LR
 | Backup ZIP + rotación | ZIP creado; rotación vía `rotar-backups.ps1`; email con `deleted=0` |
 | Read binary ZIP | OK tras allow-list + path sin espacio |
 | Drive en cadena completa | Cable Parsear → Leer → Drive → Rotacion; email con `open?id=` |
-| Rotación con `-Command $dir` | Falla (n8n come `$dir`/`$days`); usar `.ps1` |
+| Drive 404 folderId | Carpeta borrada; crear nueva y actualizar Parent Folder By ID |
+| Skip tras vaciar Drive | Esperado; borrar `.backup-state` o `-Force` |
 
 ---
 
@@ -425,7 +431,7 @@ flowchart LR
 - Habilitados Local File Trigger / Execute Command con `NODES_EXCLUDE='[]'`.
 - Allow-list de ficheros ampliada con `N8N_RESTRICT_FILE_ACCESS_TO`.
 - Corregido espacio inicial en `zipPath`; añadido `zipPathPosix`.
-- Google Drive: Parent Drive By ID `root`; Parent Folder `18NmjbymVBtT4BTQuIHUg-7kEhFBswO2r`.
+- Google Drive: Parent Drive By ID `root`; Parent Folder = ID **vigente** (el `18Nmjbym…` histórico deja de valer si se borra la carpeta → 404).
 - 403 resuelto habilitando **Google Drive API** en proyecto Cloud `947509817186`.
 - Variables de Usuario + `start-n8n.ps1` para persistir el arranque.
 - Email Gmail: quitada nota «Drive desactivado»; muestra enlace si el nodo se ejecutó.
@@ -433,4 +439,5 @@ flowchart LR
 - Rotación migrada a `rotar-backups.ps1` por conflicto `$` en Execute Command.
 - Añadidas fichas por workflow (§2): qué hace / qué no hace / tipo de backup / entradas-salidas.
 - `GENERIC_TIMEZONE=Europe/Madrid` en arranque; guía Telegram con mapa «dónde se configura» (chat_id, credencial, timezone workflow vs nodo).
-- Backup: hash SHA-256 por fichero, skip si sin cambios, modos full/differential/incremental (`auto` = full semanal + diff diario).
+- Backup: hash SHA-256, skip si sin cambios, full/diff/incr; vaciar Drive no fuerza re-subida (borrar `.backup-state` o `-Force`).
+- JSON Drive usa placeholder `PEGAR_ID_CARPETA_GOOGLE_DRIVE` (actualizar tras recrear carpeta).

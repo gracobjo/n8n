@@ -202,9 +202,46 @@ Scripts: [`backup-carpeta.ps1`](./workflows/backup-carpeta.ps1), [`rotar-backups
 
 Detalle: [`documentacion-workflows-sistemas.md`](./documentacion-workflows-sistemas.md#6-google-drive--configuración-completa).
 
-Solo se ejecuta la rama Drive si `status=created`. Parent Drive `root`, Folder `18NmjbymVBtT4BTQuIHUg-7kEhFBswO2r`.
+Solo se ejecuta la rama Drive si `status=created`. Parent Drive `root`; Parent Folder = **ID actual** de tu carpeta en Drive (no reutilices un ID de una carpeta borrada).
 
-### PowerShell a mano
+### Skip por hash vs Drive vacío
+
+| Situación | Qué hace el workflow |
+|-----------|----------------------|
+| Carpeta origen **sin cambios** (mismo hash) | `status=skipped` → **no** ZIP nuevo, **no** sube a Drive |
+| Borraste ficheros/carpeta **en Drive** pero el origen local no cambió | Sigue haciendo **skip**; Drive no se “rellena” solo |
+| Quieres forzar ZIP + subida | Borra el estado local o usa `-Force` (abajo) |
+
+Forzar regeneración:
+
+```powershell
+# Opción 1 — olvidar hash/baseline local
+Remove-Item -Recurse -Force "$env:USERPROFILE\n8n-backups\.backup-state"
+
+# Opción 2 — forzar en script
+powershell -NoProfile -File C:\Users\chuwi\Documents\n8n\workflows\backup-carpeta.ps1 -Mode full -Force
+```
+
+Luego **Test workflow** en n8n (para que también pase por Drive).
+
+### Error Drive 404 `File not found: <folderId>`
+
+La carpeta de destino **ya no existe** (la borraste o el ID es viejo).
+
+1. Crea una carpeta nueva en Drive (p. ej. `n8n-backups`).
+2. Copia el ID de `https://drive.google.com/drive/folders/ID_NUEVO`.
+3. En el nodo **Subir a Google Drive** → Parent Folder **By ID** → pega el ID nuevo.
+4. Parent Drive sigue en **By ID** = `root`.
+
+El ID antiguo del entorno de prueba (`18Nmjbym…`) **deja de valer** si esa carpeta se eliminó; hay que actualizar el nodo (y, si quieres, el JSON del repo).
+
+### Google Drive (recordatorio de parámetros)
+
+| Nodo | Parámetro | Valor |
+|------|-----------|--------|
+| Leer ZIP | File(s) Selector | `{{ $json.zipPathPosix }}` |
+| Drive | Parent Drive | By ID = `root` |
+| Drive | Parent Folder | By ID = **ID vigente** de tu carpeta |
 
 ```powershell
 # Auto (skip / full semanal / diff diario)
