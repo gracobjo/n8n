@@ -350,14 +350,25 @@ if (faseCarriedForward) {
 }
 
 const hayDiffSemantico = diffLines.length > 0;
-const cambio = !esBaseline && hayDiffSemantico;
+const meaningfulDiff = diffLines.filter((l) => !/^\s{2,}/.test(l));
+const onlyFaseBootstrap =
+  !esBaseline &&
+  prevFase.length === 0 &&
+  meaningfulDiff.length > 0 &&
+  meaningfulDiff.every((l) => /^\+\s*\[fase\]/i.test(l));
+
+// Primera vez que entra info de fase en el snapshot (o se recupera tras un snapshot sin fase):
+// actualizar hoja en silencio, sin email.
+const cambio = !esBaseline && hayDiffSemantico && !onlyFaseBootstrap;
 const resumenDiff = esBaseline
   ? '(baseline: primera captura, sin alerta)'
-  : hayDiffSemantico
-    ? diffLines.join('\n')
-    : faseCarriedForward
-      ? `(sin diferencias; fase reutilizada del snapshot anterior; fetchOk=${faseFetchedOk})`
-      : '(sin diferencias de campos tras normalizar)';
+  : onlyFaseBootstrap
+    ? `(fase incorporada al snapshot sin alerta)\n${diffLines.join('\n')}`
+    : hayDiffSemantico
+      ? diffLines.join('\n')
+      : faseCarriedForward
+        ? `(sin diferencias; fase reutilizada del snapshot anterior; fetchOk=${faseFetchedOk})`
+        : '(sin diferencias de campos tras normalizar)';
 
 return [
   {
@@ -369,7 +380,8 @@ return [
       cambio,
       esBaseline,
       resumenDiff,
-      hayDiffSemantico,
+      hayDiffSemantico: cambio,
+      onlyFaseBootstrap,
       faseCarriedForward,
       ahora: new Date().toLocaleString('es-ES', { timeZone: 'Europe/Madrid' }),
       row_number: fila.row_number,

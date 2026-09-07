@@ -295,7 +295,8 @@ La alerta solo salta si hay **diferencias de campos** tras normalizar. Mira prim
 | `Fecha de publicación` vs `Fecha publicación` | Falsa alta+baja de fechas | Misma etiqueta normalizada |
 | Map que pisaba duplicados | Solo quedaba una de dos fechas de publicación | Multivalor por fingerprint |
 | `Información adicional: Incluye` / `Incluye:` | Ruido HTML → falsa diferencia | Filtrado como junk |
-| Desaparición de `[fase] Fecha segundo ejercicio` | Fallo/regex vacío en URL adicional → alerta | Se **reutiliza** el snapshot de fase si esta corrida no extrajo fase |
+| Desaparición de `[fase] Fecha segundo ejercicio` | Fallo/regex vacío → alerta | Se **reutiliza** el snapshot de fase |
+| Reaparición `+ [fase] Fecha segundo ejercicio` | Snapshot sin fase + extracción OK → falsa alta | **Bootstrap de fase sin alerta** (actualiza hoja, no email) |
 | `Contenido publicado el` | Ruido de página | Ignorado (`IGNORE_LABELS`) |
 | Fallo HTTP de URL de fase | Alerta por cambio | No alerta; no pisa snapshot |
 
