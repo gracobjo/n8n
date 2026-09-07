@@ -221,7 +221,36 @@ Header opcional: `User-Agent` de navegador.
 
 Pega el contenido de [`workflows/extraer-jcyl-code.js`](./workflows/extraer-jcyl-code.js) (modo **Run Once for All Items**).
 
-Compara **campo a campo** (mapa etiqueta→valor normalizado), no el texto entero. Expone `cambio`, `resumenDiff`, `hayDiffSemantico`.
+### Cómo decide si hay cambio (semántica)
+
+No compara el string entero. Construye huellas `origen|etiquetaNormalizada|valorNormalizado` y hace diff:
+
+| Señal | Significado |
+|-------|-------------|
+| `+` | Campo nuevo (etiqueta+valor que antes no existía) |
+| `-` | Campo que ya no aparece |
+| `~` | Misma etiqueta semántica con **otro** valor |
+| `(sin diferencias…)` | Solo cambió orden, prefijos `[principal]`, o redacción de la etiqueta |
+
+**Normalización de etiquetas:** quita artículos (`de`, `el`, …) y unifica variantes. Ejemplo real:
+
+| Texto en página / snapshot | Etiqueta normalizada |
+|----------------------------|----------------------|
+| `Fecha de publicación` | `fecha publicacion` |
+| `Fecha publicación` | `fecha publicacion` |
+
+Así **no** se alerta con un falso:
+
+```text
+- Fecha de publicación: 19 de marzo de 2026
++ Fecha publicación: 17 de febrero de 2026
+```
+
+cuando ambas fechas siguen presentes (caso Técnico-a Gestión Informática PI, 2026-09-07).
+
+Varios valores bajo la misma etiqueta (p. ej. dos fechas de publicación) se **conservan** (no se pisan en un Map).
+
+Salida del nodo: `cambio`, `resumenDiff`, `hayDiffSemantico`, `estadoActual`, `estadoAnterior`.
 
 > El nodo **Iterar convocatorias** debe llamarse exactamente así (el Code lo referencia).
 
@@ -256,20 +285,19 @@ Comprobado: {{ $json.ahora }}
 {{ $json.estadoActual }}
 ```
 
-La alerta solo salta si hay **diferencias de campos** (altas/bajas/cambios de valor) tras normalizar. No basta con que el texto concatenado “se vea distinto” por orden o ruido.
+La alerta solo salta si hay **diferencias de campos** tras normalizar. Mira primero `resumenDiff`; si dice `(sin diferencias de campos tras normalizar)`, no debería haberse enviado correo (`cambio=false`).
 
-**Falsos positivos habituales (antes):**
+**Falsos positivos corregidos:**
 
-| Causa | Efecto |
-|-------|--------|
-| Comparar el blob entero | Reordenación de campos o espacios → email de “cambio” casi idéntico |
-| `Contenido publicado el` | Metadato de página volátil |
-| Fallo puntual de URL de fase | Antes: `[fase] Error…` vs datos reales → falsa alerta |
+| Causa | Efecto antes | Ahora |
+|-------|--------------|--------|
+| Comparar el blob entero | Reorden / espacios → email casi idéntico | Diff por huellas de campo |
+| `Fecha de publicación` vs `Fecha publicación` | Falsa alta+baja de fechas | Misma etiqueta normalizada |
+| Map que pisaba duplicados | Solo quedaba una de dos fechas de publicación | Multivalor por fingerprint |
+| `Contenido publicado el` | Ruido de página | Ignorado (`IGNORE_LABELS`) |
+| Fallo puntual de URL de fase | `[fase] Error…` vs datos → alerta | No alerta; no pisa snapshot |
 
-**Ahora:** comparación mapa etiqueta→valor; se ignora “Contenido publicado el”; si falla una URL de fase no se alerta ni se pisa el snapshot.
-
-Tras actualizar, pega de nuevo [`workflows/extraer-jcyl-code.js`](./workflows/extraer-jcyl-code.js) en el nodo **Extraer y comparar** (o reimporta el JSON).
-### Nodo 9 — Actualizar fila (Google Sheets)
+Tras actualizar el script: pega de nuevo `extraer-jcyl-code.js` en el nodo o reimporta el JSON.### Nodo 9 — Actualizar fila (Google Sheets)
 
 Conecta **Gmail → aquí** y **IF false → aquí**. Luego **Actualizar fila → Iterar convocatorias** (cierra el bucle).
 
