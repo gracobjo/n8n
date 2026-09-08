@@ -11,6 +11,8 @@ param(
   [ValidateSet('auto', 'full', 'differential', 'incremental')]
   [string]$Mode = 'auto',
   [int]$FullEveryDays = 7,
+  [string]$ChatId = '',
+  [int]$DaysToKeep = 7,
   [switch]$Force
 )
 
@@ -177,6 +179,9 @@ function New-ZipFromRelativeFiles([string]$Root, [object[]]$Files, [string]$ZipP
 }
 
 function Emit-Result($Object) {
+  $Object | Add-Member -NotePropertyName modeRequested -NotePropertyValue $Mode -Force
+  $Object | Add-Member -NotePropertyName chatId -NotePropertyValue $ChatId -Force
+  $Object | Add-Member -NotePropertyName daysToKeep -NotePropertyValue $DaysToKeep -Force
   $json = ($Object | ConvertTo-Json -Compress -Depth 6)
   Write-Output $json
 }

@@ -18,7 +18,10 @@
       "name": "Schedule 03:00",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
-      "position": [0, 300]
+      "position": [
+        0,
+        300
+      ]
     },
     {
       "parameters": {
@@ -68,29 +71,38 @@
       "name": "Rutas backup",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
-      "position": [200, 300]
+      "position": [
+        200,
+        300
+      ]
     },
     {
       "parameters": {
-        "command": "=powershell -NoProfile -File \"C:\\Users\\chuwi\\Documents\\n8n\\workflows\\backup-carpeta.ps1\" -SourcePath \"{{ $json.sourcePath }}\" -BackupDir \"{{ $json.backupDir }}\" -Mode {{ $json.mode }} -FullEveryDays {{ $json.fullEveryDays }}"
+        "command": "=powershell -NoProfile -File \"C:\\Users\\chuwi\\Documents\\n8n\\workflows\\backup-carpeta.ps1\" -SourcePath \"{{ $json.sourcePath }}\" -BackupDir \"{{ $json.backupDir }}\" -Mode {{ $json.mode }} -FullEveryDays {{ $json.fullEveryDays }} -ChatId \"{{ $json.chatId }}\" -DaysToKeep {{ $json.daysToKeep }}"
       },
       "id": "exec-zip-001",
       "name": "Ejecutar backup",
       "type": "n8n-nodes-base.executeCommand",
       "typeVersion": 1,
-      "position": [420, 300],
+      "position": [
+        420,
+        300
+      ],
       "onError": "continueErrorOutput"
     },
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const cfg = $('Rutas backup').item.json;\nconst out = $input.first().json;\nconst stdout = String(out.stdout ?? out ?? '');\nconst stderr = String(out.stderr ?? '');\nconst exitCode = Number(out.exitCode ?? 0);\nconst lines = stdout\n  .split(/\\r?\\n/)\n  .map((l) => l.replace(/^\\uFEFF/, '').trim())\n  .filter(Boolean);\n\nlet parsed = null;\nfor (let i = lines.length - 1; i >= 0; i--) {\n  const line = lines[i];\n  if (!line.startsWith('{')) continue;\n  try {\n    parsed = JSON.parse(line);\n    break;\n  } catch {\n    /* siguiente */\n  }\n}\n\nconst zipPath = parsed?.zipPath ? String(parsed.zipPath).trim() : '';\nconst zipPathPosix = zipPath ? zipPath.replace(/\\\\/g, '/') : '';\nconst created = parsed?.status === 'created' && Boolean(zipPath);\nconst skipped = parsed?.status === 'skipped';\nconst failed =\n  exitCode !== 0 ||\n  !parsed ||\n  !parsed.status ||\n  (parsed.status !== 'created' && parsed.status !== 'skipped');\n\nconst deletedPaths = Array.isArray(parsed?.deletedPaths) ? parsed.deletedPaths : [];\nconst addedPaths = Array.isArray(parsed?.addedPaths) ? parsed.addedPaths : [];\nconst sourceEmptied = Boolean(parsed?.sourceEmptied);\nconst deletedCount = Number(parsed?.deletedCount ?? 0);\nconst addedCount = Number(parsed?.addedCount ?? 0);\nconst modifiedCount = Number(parsed?.modifiedCount ?? 0);\nconst previousFileCount = Number(parsed?.previousFileCount ?? 0);\n\nlet cambiosLine = 'sin detalle de diff';\nif (sourceEmptied) {\n  cambiosLine = `ORIGEN VACIADO: borrados ${deletedCount} (antes ${previousFileCount} → ahora 0)`;\n} else if (deletedCount || addedCount || modifiedCount) {\n  cambiosLine = `+${addedCount} ~${modifiedCount} -${deletedCount} (antes ${previousFileCount})`;\n}\n\nreturn [\n  {\n    json: {\n      sourcePath: cfg.sourcePath,\n      backupDir: cfg.backupDir,\n      daysToKeep: Number(cfg.daysToKeep ?? 7),\n      modeRequested: cfg.mode,\n      mode: parsed?.mode ?? 'none',\n      status: failed ? 'error' : (parsed?.status ?? 'error'),\n      reason: parsed?.reason ?? (failed ? 'exec_or_parse_failed' : ''),\n      message: parsed?.message ?? (stderr || stdout || 'Error en backup'),\n      contentHash: parsed?.contentHash ?? '',\n      fileCount: Number(parsed?.fileCount ?? 0),\n      sourceFileCount: Number(parsed?.sourceFileCount ?? 0),\n      previousFileCount,\n      addedCount,\n      modifiedCount,\n      deletedCount,\n      sourceEmptied,\n      deletedPaths,\n      addedPaths,\n      cambiosLine,\n      deletedPathsText: deletedPaths.length ? deletedPaths.join(', ') : '(ninguno)',\n      zipPath,\n      zipPathPosix,\n      fileName: parsed?.fileName ?? (zipPath ? zipPath.split(/[/\\\\]/).pop() : ''),\n      lastFullZip: parsed?.lastFullZip ?? '',\n      created,\n      skipped,\n      failed,\n      exitCode,\n      stderr,\n      chatId: String(cfg.chatId ?? ''),\n      ahora: new Date().toLocaleString('es-ES', { timeZone: 'Europe/Madrid' }),\n    },\n  },\n];"
+        "jsCode": "// Pegar en el nodo Code \"Parsear resultado1\" (o el que parsea stdout del .ps1).\r\n// NO usa $('Rutas backup…'): todo viene del JSON del script → evita \"Referenced node doesn't exist\".\r\n\r\nconst out = $input.first().json;\r\nconst stdout = String(out.stdout ?? out ?? '');\r\nconst stderr = String(out.stderr ?? '');\r\nconst exitCode = Number(out.exitCode ?? 0);\r\nconst lines = stdout\r\n  .split(/\\r?\\n/)\r\n  .map((l) => l.replace(/^\\uFEFF/, '').trim())\r\n  .filter(Boolean);\r\n\r\nlet parsed = null;\r\nfor (let i = lines.length - 1; i >= 0; i--) {\r\n  const line = lines[i];\r\n  if (!line.startsWith('{')) continue;\r\n  try {\r\n    parsed = JSON.parse(line);\r\n    break;\r\n  } catch {\r\n    /* siguiente */\r\n  }\r\n}\r\n\r\nconst zipPath = parsed?.zipPath ? String(parsed.zipPath).trim() : '';\r\nconst zipPathPosix = zipPath ? zipPath.replace(/\\\\/g, '/') : '';\r\nconst created = parsed?.status === 'created' && Boolean(zipPath);\r\nconst skipped = parsed?.status === 'skipped';\r\nconst failed =\r\n  exitCode !== 0 ||\r\n  !parsed ||\r\n  !parsed.status ||\r\n  (parsed.status !== 'created' && parsed.status !== 'skipped');\r\n\r\nconst deletedPaths = Array.isArray(parsed?.deletedPaths) ? parsed.deletedPaths : [];\r\nconst addedPaths = Array.isArray(parsed?.addedPaths) ? parsed.addedPaths : [];\r\nconst sourceEmptied = Boolean(parsed?.sourceEmptied);\r\nconst deletedCount = Number(parsed?.deletedCount ?? 0);\r\nconst addedCount = Number(parsed?.addedCount ?? 0);\r\nconst modifiedCount = Number(parsed?.modifiedCount ?? 0);\r\nconst previousFileCount = Number(parsed?.previousFileCount ?? 0);\r\n\r\nlet cambiosLine = 'sin detalle de diff';\r\nif (sourceEmptied) {\r\n  cambiosLine = `ORIGEN VACIADO: borrados ${deletedCount} (antes ${previousFileCount} → ahora 0)`;\r\n} else if (deletedCount || addedCount || modifiedCount) {\r\n  cambiosLine = `+${addedCount} ~${modifiedCount} -${deletedCount} (antes ${previousFileCount})`;\r\n}\r\n\r\nreturn [\r\n  {\r\n    json: {\r\n      sourcePath: parsed?.sourcePath ?? '',\r\n      backupDir: parsed?.backupDir ?? '',\r\n      daysToKeep: Number(parsed?.daysToKeep ?? 7),\r\n      modeRequested: parsed?.modeRequested ?? 'auto',\r\n      mode: parsed?.mode ?? 'none',\r\n      status: failed ? 'error' : (parsed?.status ?? 'error'),\r\n      reason: parsed?.reason ?? (failed ? 'exec_or_parse_failed' : ''),\r\n      message: parsed?.message ?? (stderr || stdout || 'Error en backup'),\r\n      contentHash: parsed?.contentHash ?? '',\r\n      fileCount: Number(parsed?.fileCount ?? 0),\r\n      sourceFileCount: Number(parsed?.sourceFileCount ?? 0),\r\n      previousFileCount,\r\n      addedCount,\r\n      modifiedCount,\r\n      deletedCount,\r\n      sourceEmptied,\r\n      deletedPaths,\r\n      addedPaths,\r\n      cambiosLine,\r\n      deletedPathsText: deletedPaths.length ? deletedPaths.join(', ') : '(ninguno)',\r\n      zipPath,\r\n      zipPathPosix,\r\n      fileName: parsed?.fileName ?? (zipPath ? zipPath.split(/[/\\\\]/).pop() : ''),\r\n      lastFullZip: parsed?.lastFullZip ?? '',\r\n      created,\r\n      skipped,\r\n      failed,\r\n      exitCode,\r\n      stderr,\r\n      chatId: String(parsed?.chatId ?? ''),\r\n      ahora: new Date().toLocaleString('es-ES', { timeZone: 'Europe/Madrid' }),\r\n    },\r\n  },\r\n];\r\n"
       },
       "id": "code-parse-zip-001",
       "name": "Parsear resultado",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [640, 220]
+      "position": [
+        640,
+        220
+      ]
     },
     {
       "parameters": {
@@ -119,7 +131,10 @@
       "name": "IF fallo",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [860, 220]
+      "position": [
+        860,
+        220
+      ]
     },
     {
       "parameters": {
@@ -148,7 +163,10 @@
       "name": "IF ZIP creado",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [1080, 320]
+      "position": [
+        1080,
+        320
+      ]
     },
     {
       "parameters": {
@@ -162,7 +180,10 @@
       "name": "Leer ZIP disco",
       "type": "n8n-nodes-base.readWriteFile",
       "typeVersion": 1.1,
-      "position": [1300, 180],
+      "position": [
+        1300,
+        180
+      ],
       "onError": "continueErrorOutput"
     },
     {
@@ -187,7 +208,10 @@
       "name": "Subir a Google Drive",
       "type": "n8n-nodes-base.googleDrive",
       "typeVersion": 3,
-      "position": [1520, 180],
+      "position": [
+        1520,
+        180
+      ],
       "credentials": {
         "googleDriveOAuth2Api": {
           "id": "REEMPLAZAR_ID_CREDENCIAL",
@@ -206,7 +230,10 @@
       "name": "Rotacion retencion",
       "type": "n8n-nodes-base.executeCommand",
       "typeVersion": 1,
-      "position": [1740, 180],
+      "position": [
+        1740,
+        180
+      ],
       "onError": "continueErrorOutput"
     },
     {
@@ -221,7 +248,10 @@
       "name": "Gmail backup OK",
       "type": "n8n-nodes-base.gmail",
       "typeVersion": 2.1,
-      "position": [1960, 100],
+      "position": [
+        1960,
+        100
+      ],
       "credentials": {
         "gmailOAuth2": {
           "id": "REEMPLAZAR_ID_CREDENCIAL",
@@ -242,7 +272,10 @@
       "name": "Telegram backup OK",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
-      "position": [1960, 260],
+      "position": [
+        1960,
+        260
+      ],
       "credentials": {
         "telegramApi": {
           "id": "REEMPLAZAR_ID_CREDENCIAL",
@@ -262,7 +295,10 @@
       "name": "Gmail sin cambios",
       "type": "n8n-nodes-base.gmail",
       "typeVersion": 2.1,
-      "position": [1300, 420],
+      "position": [
+        1300,
+        420
+      ],
       "credentials": {
         "gmailOAuth2": {
           "id": "REEMPLAZAR_ID_CREDENCIAL",
@@ -283,7 +319,10 @@
       "name": "Telegram sin cambios",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
-      "position": [1300, 560],
+      "position": [
+        1300,
+        560
+      ],
       "credentials": {
         "telegramApi": {
           "id": "REEMPLAZAR_ID_CREDENCIAL",
@@ -296,14 +335,17 @@
         "sendTo": "tu-correo@gmail.com",
         "subject": "=⚠️ Backup KO — error",
         "emailType": "text",
-        "message": "=Falló el workflow de backup.\n\nHora: {{ $now.setZone('Europe/Madrid').toFormat('dd/MM/yyyy HH:mm') }}\nOrigen: {{ $('Rutas backup').item.json.sourcePath }}\nDetalle: {{ $json.message || $json.error?.message || $json.errorMessage || JSON.stringify($json) }}\nexitCode: {{ $json.exitCode ?? 'n/d' }}\nstderr: {{ $json.stderr || '' }}",
+        "message": "=Falló el workflow de backup.\n\nHora: {{ $now.setZone('Europe/Madrid').toFormat('dd/MM/yyyy HH:mm') }}\nOrigen: {{ $('Parsear resultado').item.json.sourcePath || $json.sourcePath || '' }}\nDetalle: {{ $json.message || $json.error?.message || $json.errorMessage || JSON.stringify($json) }}\nexitCode: {{ $json.exitCode ?? 'n/d' }}\nstderr: {{ $json.stderr || '' }}",
         "options": {}
       },
       "id": "gmail-backup-ko-001",
       "name": "Gmail backup KO",
       "type": "n8n-nodes-base.gmail",
       "typeVersion": 2.1,
-      "position": [1080, 40],
+      "position": [
+        1080,
+        40
+      ],
       "credentials": {
         "gmailOAuth2": {
           "id": "REEMPLAZAR_ID_CREDENCIAL",
@@ -313,7 +355,7 @@
     },
     {
       "parameters": {
-        "chatId": "={{ $('Rutas backup').item.json.chatId }}",
+        "chatId": "={{ $('Parsear resultado').item.json.chatId || $json.chatId }}",
         "text": "=Backup KO\n{{ ($json.message || $json.error?.message || $json.errorMessage || 'Error en pipeline backup').toString().replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;') }}\nHora: {{ $now.setZone('Europe/Madrid').toFormat('dd/MM/yyyy HH:mm') }}",
         "additionalFields": {
           "appendAttribution": false,
@@ -324,7 +366,10 @@
       "name": "Telegram backup KO",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
-      "position": [1080, -100],
+      "position": [
+        1080,
+        -100
+      ],
       "credentials": {
         "telegramApi": {
           "id": "REEMPLAZAR_ID_CREDENCIAL",
@@ -335,68 +380,178 @@
   ],
   "connections": {
     "Schedule 03:00": {
-      "main": [[{ "node": "Rutas backup", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Rutas backup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Rutas backup": {
-      "main": [[{ "node": "Ejecutar backup", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Ejecutar backup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Ejecutar backup": {
       "main": [
-        [{ "node": "Parsear resultado", "type": "main", "index": 0 }],
         [
-          { "node": "Gmail backup KO", "type": "main", "index": 0 },
-          { "node": "Telegram backup KO", "type": "main", "index": 0 }
+          {
+            "node": "Parsear resultado",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Gmail backup KO",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Telegram backup KO",
+            "type": "main",
+            "index": 0
+          }
         ]
       ]
     },
     "Parsear resultado": {
-      "main": [[{ "node": "IF fallo", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "IF fallo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "IF fallo": {
       "main": [
         [
-          { "node": "Gmail backup KO", "type": "main", "index": 0 },
-          { "node": "Telegram backup KO", "type": "main", "index": 0 }
+          {
+            "node": "Gmail backup KO",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Telegram backup KO",
+            "type": "main",
+            "index": 0
+          }
         ],
-        [{ "node": "IF ZIP creado", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "IF ZIP creado",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "IF ZIP creado": {
       "main": [
-        [{ "node": "Leer ZIP disco", "type": "main", "index": 0 }],
         [
-          { "node": "Gmail sin cambios", "type": "main", "index": 0 },
-          { "node": "Telegram sin cambios", "type": "main", "index": 0 }
+          {
+            "node": "Leer ZIP disco",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Gmail sin cambios",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Telegram sin cambios",
+            "type": "main",
+            "index": 0
+          }
         ]
       ]
     },
     "Leer ZIP disco": {
       "main": [
-        [{ "node": "Subir a Google Drive", "type": "main", "index": 0 }],
         [
-          { "node": "Gmail backup KO", "type": "main", "index": 0 },
-          { "node": "Telegram backup KO", "type": "main", "index": 0 }
+          {
+            "node": "Subir a Google Drive",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Gmail backup KO",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Telegram backup KO",
+            "type": "main",
+            "index": 0
+          }
         ]
       ]
     },
     "Subir a Google Drive": {
       "main": [
-        [{ "node": "Rotacion retencion", "type": "main", "index": 0 }],
         [
-          { "node": "Gmail backup KO", "type": "main", "index": 0 },
-          { "node": "Telegram backup KO", "type": "main", "index": 0 }
+          {
+            "node": "Rotacion retencion",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Gmail backup KO",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Telegram backup KO",
+            "type": "main",
+            "index": 0
+          }
         ]
       ]
     },
     "Rotacion retencion": {
       "main": [
         [
-          { "node": "Gmail backup OK", "type": "main", "index": 0 },
-          { "node": "Telegram backup OK", "type": "main", "index": 0 }
+          {
+            "node": "Gmail backup OK",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Telegram backup OK",
+            "type": "main",
+            "index": 0
+          }
         ],
         [
-          { "node": "Gmail backup KO", "type": "main", "index": 0 },
-          { "node": "Telegram backup KO", "type": "main", "index": 0 }
+          {
+            "node": "Gmail backup KO",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Telegram backup KO",
+            "type": "main",
+            "index": 0
+          }
         ]
       ]
     }
