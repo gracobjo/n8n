@@ -1,5 +1,8 @@
 // Pegar en el nodo Code "Parsear resultado1" (o el que parsea stdout del .ps1).
 // NO usa $('Rutas backup…'): todo viene del JSON del script → evita "Referenced node doesn't exist".
+// Si Ejecutar backup no pasa -ChatId, usa DEFAULT_CHAT_ID.
+
+const DEFAULT_CHAT_ID = '328226271';
 
 const out = $input.first().json;
 const stdout = String(out.stdout ?? out ?? '');
@@ -47,6 +50,8 @@ if (sourceEmptied) {
   cambiosLine = `+${addedCount} ~${modifiedCount} -${deletedCount} (antes ${previousFileCount})`;
 }
 
+const chatId = String(parsed?.chatId || DEFAULT_CHAT_ID).trim() || DEFAULT_CHAT_ID;
+
 return [
   {
     json: {
@@ -79,7 +84,7 @@ return [
       failed,
       exitCode,
       stderr,
-      chatId: String(parsed?.chatId ?? ''),
+      chatId,
       ahora: new Date().toLocaleString('es-ES', { timeZone: 'Europe/Madrid' }),
     },
   },
