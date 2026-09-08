@@ -187,17 +187,17 @@ Schedule (03:00)
 
 En **Rutas backup** pon `chatId` (p. ej. `328226271`). Misma credencial Telegram que el mensaje programado / uptime.
 
-Textos típicos:
+Textos típicos (texto plano; **Parse Mode = None** — si usas Markdown, el `_` de `backup_full_…` rompe el mensaje):
 
 ```text
-💾 Backup OK (full|differential|incremental)
+Backup OK (full|differential|incremental)
 archivo.zip
 …
 
-💾 Backup omitido (sin cambios)
+Backup omitido (sin cambios)
 …
 
-⚠️ Backup KO
+Backup KO
 detalle del error
 ```
 
