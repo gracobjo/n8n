@@ -240,14 +240,7 @@ Scripts: [`backup-carpeta.ps1`](./workflows/backup-carpeta.ps1), [`rotar-backups
 
 ### Retención (`rotar-backups.ps1`)
 
-Máximo **1 full + 1 diff + 1 incr** en disco. Parámetro `-AfterMode full|differential|incremental` aplica la cascada (full limpia diff/incr; diff limpia incr).
-
-| Patrón | Días por defecto |
-|--------|------------------|
-| `backup_full_*.zip` | 28 |
-| `backup_diff_*.zip` | 14 |
-| `backup_incr_*.zip` | 7 |
-| `backup_*.zip` legado | `daysToKeep` del workflow (7) |
+Máximo **1 full + 1 diff + 1 incr** en disco. Parámetro `-AfterMode full|differential|incremental` aplica la cascada (full limpia diff/incr; diff limpia incr). Los ZIPs legado `backup_*.zip` sin sufijo se eliminan.
 
 ### Google Drive
 
