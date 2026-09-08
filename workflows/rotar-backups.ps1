@@ -1,4 +1,5 @@
-# Rotacion de backups full / diff / incr (y legado backup_*.zip)
+# Retencion local de ZIPs de backup (NO borra ficheros de la carpeta origen).
+# Purge: full 28d / diff 14d / incr 7d / legado 7d (ajustable por parametros).
 param(
   [Parameter(Mandatory = $true)]
   [string]$BackupDir,
@@ -10,7 +11,8 @@ param(
 )
 
 if (-not (Test-Path -LiteralPath $BackupDir)) {
-  Write-Output "deleted=0; files=; note=backupDir-missing"
+  Write-Output "Retencion ZIPs locales: carpeta de backups no existe ($BackupDir). No se borro nada."
+  Write-Output "deleted=0; files="
   exit 0
 }
 
@@ -39,4 +41,10 @@ Get-ChildItem -LiteralPath $BackupDir -File -Filter 'backup_*.zip' -ErrorAction 
     $removed += $_.Name
   }
 
+$policy = "politica: full ${DaysToKeepFull}d / diff ${DaysToKeepDiff}d / incr ${DaysToKeepIncr}d / legado ${DaysToKeepLegacy}d"
+if ($removed.Count -eq 0) {
+  Write-Output "Retencion ZIPs locales (NO es el origen): ningun ZIP antiguo eliminado. $policy"
+} else {
+  Write-Output "Retencion ZIPs locales (NO es el origen): eliminados $($removed.Count) ZIP(s) caducados: $($removed -join ', '). $policy"
+}
 Write-Output ("deleted=$($removed.Count); files=$($removed -join ',')")

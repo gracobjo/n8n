@@ -191,7 +191,7 @@ Textos típicos (**Parse Mode = HTML** en Additional Fields — n8n por defecto 
 
 ```text
 Backup OK (full|differential|incremental)
-archivo.zip
+mensaje con cambios +/~/- o ORIGEN VACIADO
 …
 
 Backup omitido (sin cambios)
@@ -200,6 +200,18 @@ Backup omitido (sin cambios)
 Backup KO
 detalle del error
 ```
+
+En Gmail OK, el bloque de rotación debe titularse así (no solo `Rotación:`):
+
+```text
+---
+Limpieza de ZIPs antiguos en disco (retencion).
+Esto NO indica ficheros borrados en la carpeta origen.
+Retencion ZIPs locales (NO es el origen): ningun ZIP antiguo eliminado. politica: full 28d / …
+---
+```
+
+`deleted=0; files=` = cero ZIPs caducados borrados de `n8n-backups`, no del origen.
 
 ### Importar / actualizar
 
