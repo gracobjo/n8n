@@ -383,6 +383,7 @@ return [
       hayDiffSemantico: cambio,
       onlyFaseBootstrap,
       faseCarriedForward,
+      extractorVersion: '2026-09-08-semantic-v3',
       ahora: new Date().toLocaleString('es-ES', { timeZone: 'Europe/Madrid' }),
       row_number: fila.row_number,
     },

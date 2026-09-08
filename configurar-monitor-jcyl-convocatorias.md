@@ -288,6 +288,7 @@ Se detectó un cambio en una convocatoria de empleo público de JCyL.
 Convocatoria: {{ $json.titulo }}
 URL: {{ $json.url }}
 Comprobado: {{ $json.ahora }}
+Extractor: {{ $json.extractorVersion }}
 
 --- QUÉ CAMBIÓ (campo a campo) ---
 {{ $json.resumenDiff }}
@@ -314,9 +315,16 @@ La alerta solo salta si hay **diferencias de campos** tras normalizar. Mira prim
 | `Contenido publicado el` | Ruido de página | Ignorado (`IGNORE_LABELS`) |
 | Fallo HTTP de URL de fase | Alerta por cambio | No alerta; no pisa snapshot |
 
-**Importante:** el correo debe incluir la sección `QUÉ CAMBIÓ` con `{{ $json.resumenDiff }}`. Si tu Gmail aún no la tiene, actualiza el Message del nodo (el email de Soporte Libre sin esa sección usaba plantilla antigua).
+**Importante — n8n 2.x:** pegar el JS en el canvas **no basta**. Tras cambiar Code o Gmail:
 
-Tras actualizar: pega de nuevo [`workflows/extraer-jcyl-code.js`](./workflows/extraer-jcyl-code.js) en **Extraer y comparar**.### Nodo 9 — Actualizar fila (Google Sheets)
+1. Guarda el workflow.
+2. **Publish** (o el workflow activo seguirá la versión antigua a las 06:00).
+3. En la siguiente ejecución, el output de **Extraer y comparar** debe incluir `extractorVersion: "2026-09-08-semantic-v3"` y `resumenDiff`.
+4. El email debe tener la sección `--- QUÉ CAMBIÓ (campo a campo) ---`. Si no aparece, la plantilla Gmail (o el workflow publicado) es la vieja.
+
+**Diagnóstico de falsos emails (08/09/2026 06:00):** los mensajes de Soporte Libre y Gestión Informática (PI) **no** traían `resumenDiff` y el «estado actual» iba **sin** prefijos `[principal]`/`[fase]`. Eso indica extractor/plantilla **antiguos** en la versión publicada (comparaban el blob entero: mismo contenido, distinto formato → falsa alerta). Con v3, esos dos casos dan `cambio: false`.
+
+Tras actualizar: pega de nuevo [`workflows/extraer-jcyl-code.js`](./workflows/extraer-jcyl-code.js) en **Extraer y comparar** y **Publish**.### Nodo 9 — Actualizar fila (Google Sheets)
 
 Conecta **Gmail → aquí** y **IF false → aquí**. Luego **Actualizar fila → Iterar convocatorias** (cierra el bucle).
 
