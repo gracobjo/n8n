@@ -93,6 +93,68 @@ function Get-ChangedFiles($CurrentManifest, $BaselineManifest) {
   return $changed
 }
 
+function Get-ChangeSummary($CurrentManifest, $PreviousManifest) {
+  $added = @()
+  $modified = @()
+  $deleted = @()
+  $prevCount = 0
+
+  if ($null -eq $PreviousManifest -or $null -eq $PreviousManifest.files) {
+    $added = @($CurrentManifest.files | ForEach-Object { $_.path })
+    return [pscustomobject]@{
+      previousFileCount = 0
+      addedCount        = $added.Count
+      modifiedCount     = 0
+      deletedCount      = 0
+      addedPaths        = @($added)
+      modifiedPaths     = @()
+      deletedPaths      = @()
+      sourceEmptied     = $false
+    }
+  }
+
+  $prevCount = @($PreviousManifest.files).Count
+  $prevMap = @{}
+  foreach ($f in $PreviousManifest.files) {
+    $prevMap[$f.path] = $f.sha256
+  }
+  $currMap = @{}
+  foreach ($f in $CurrentManifest.files) {
+    $currMap[$f.path] = $f.sha256
+    if (-not $prevMap.ContainsKey($f.path)) {
+      $added += $f.path
+    } elseif ($prevMap[$f.path] -ne $f.sha256) {
+      $modified += $f.path
+    }
+  }
+  foreach ($f in $PreviousManifest.files) {
+    if (-not $currMap.ContainsKey($f.path)) {
+      $deleted += $f.path
+    }
+  }
+
+  return [pscustomobject]@{
+    previousFileCount = $prevCount
+    addedCount        = $added.Count
+    modifiedCount     = $modified.Count
+    deletedCount      = $deleted.Count
+    addedPaths        = @($added)
+    modifiedPaths     = @($modified)
+    deletedPaths      = @($deleted)
+    sourceEmptied     = ($prevCount -gt 0 -and $CurrentManifest.fileCount -eq 0)
+  }
+}
+
+function Format-ChangeMessage($Summary, [string]$ResolvedMode, [int]$ZipFileCount) {
+  $parts = @("Backup $ResolvedMode creado ($ZipFileCount archivos en ZIP).")
+  if ($Summary.sourceEmptied) {
+    $parts += "Origen vaciado: se borraron $($Summary.deletedCount) archivo(s) respecto al backup anterior (antes $($Summary.previousFileCount), ahora 0)."
+  } elseif ($Summary.deletedCount -gt 0 -or $Summary.addedCount -gt 0 -or $Summary.modifiedCount -gt 0) {
+    $parts += "Cambios vs anterior: +$($Summary.addedCount) ~$($Summary.modifiedCount) -$($Summary.deletedCount) (antes $($Summary.previousFileCount) archivos)."
+  }
+  return ($parts -join ' ')
+}
+
 function New-ZipFromRelativeFiles([string]$Root, [object[]]$Files, [string]$ZipPath) {
   Add-Type -AssemblyName System.IO.Compression
   Add-Type -AssemblyName System.IO.Compression.FileSystem
@@ -149,25 +211,36 @@ Write-Host "Escaneando y hasheando: $SourcePath"
 $manifest = Build-Manifest -Root $SourcePath
 Write-JsonFile -Path $manifestCurrentPath -Object $manifest
 
+$previousManifest = Read-JsonFile $manifestLastBackupPath
+if ($null -eq $previousManifest) {
+  $previousManifest = Read-JsonFile $manifestLastFullPath
+}
+$changeSummary = Get-ChangeSummary -CurrentManifest $manifest -PreviousManifest $previousManifest
+
 $unchanged = (-not $Force) -and
   $state.lastContentHash -and
   ($state.lastContentHash -eq $manifest.contentHash)
 
 if ($unchanged) {
   Emit-Result ([pscustomobject]@{
-      status        = 'skipped'
-      reason        = 'unchanged'
-      mode          = 'none'
-      zipPath       = $null
-      fileName      = $null
-      contentHash   = $manifest.contentHash
-      fileCount     = 0
+      status          = 'skipped'
+      reason          = 'unchanged'
+      mode            = 'none'
+      zipPath         = $null
+      fileName        = $null
+      contentHash     = $manifest.contentHash
+      fileCount       = 0
       sourceFileCount = $manifest.fileCount
-      sourcePath    = $manifest.root
-      backupDir     = [System.IO.Path]::GetFullPath($BackupDir)
-      lastZip       = $state.lastZip
-      lastFullZip   = $state.lastFullZip
-      message       = 'Sin cambios respecto al ultimo backup; no se genera ZIP ni subida.'
+      previousFileCount = $changeSummary.previousFileCount
+      addedCount      = 0
+      modifiedCount   = 0
+      deletedCount    = 0
+      sourceEmptied   = $false
+      sourcePath      = $manifest.root
+      backupDir       = [System.IO.Path]::GetFullPath($BackupDir)
+      lastZip         = $state.lastZip
+      lastFullZip     = $state.lastFullZip
+      message         = 'Sin cambios respecto al ultimo backup; no se genera ZIP ni subida.'
     })
   exit 0
 }
@@ -256,18 +329,30 @@ if ($resolvedMode -eq 'full') {
 
 Write-JsonFile -Path $statePath -Object $state
 
+$reason = if ($changeSummary.sourceEmptied) { 'source_emptied' } elseif ($changeSummary.deletedCount -gt 0) { 'deletions' } else { 'ok' }
+$maxList = 20
+$deletedPreview = @($changeSummary.deletedPaths | Select-Object -First $maxList)
+$addedPreview = @($changeSummary.addedPaths | Select-Object -First $maxList)
+
 Emit-Result ([pscustomobject]@{
-    status          = 'created'
-    reason          = 'ok'
-    mode            = $resolvedMode
-    zipPath         = $zipPath
-    fileName        = [System.IO.Path]::GetFileName($zipPath)
-    contentHash     = $manifest.contentHash
-    fileCount       = $filesToZip.Count
-    sourceFileCount = $manifest.fileCount
-    sourcePath      = $manifest.root
-    backupDir       = [System.IO.Path]::GetFullPath($BackupDir)
-    lastZip         = $zipPath
-    lastFullZip     = $state.lastFullZip
-    message         = "Backup $resolvedMode creado ($($filesToZip.Count) archivos)."
+    status            = 'created'
+    reason            = $reason
+    mode              = $resolvedMode
+    zipPath           = $zipPath
+    fileName          = [System.IO.Path]::GetFileName($zipPath)
+    contentHash       = $manifest.contentHash
+    fileCount         = $filesToZip.Count
+    sourceFileCount   = $manifest.fileCount
+    previousFileCount = $changeSummary.previousFileCount
+    addedCount        = $changeSummary.addedCount
+    modifiedCount     = $changeSummary.modifiedCount
+    deletedCount      = $changeSummary.deletedCount
+    sourceEmptied     = [bool]$changeSummary.sourceEmptied
+    deletedPaths      = $deletedPreview
+    addedPaths        = $addedPreview
+    sourcePath        = $manifest.root
+    backupDir         = [System.IO.Path]::GetFullPath($BackupDir)
+    lastZip           = $zipPath
+    lastFullZip       = $state.lastFullZip
+    message           = (Format-ChangeMessage -Summary $changeSummary -ResolvedMode $resolvedMode -ZipFileCount $filesToZip.Count)
   })

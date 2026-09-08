@@ -232,9 +232,11 @@ Solo se ejecuta la rama Drive si `status=created`. Parent Drive `root`; Parent F
 
 ### Skip por hash vs Drive vacío
 
-| Situación | Qué hace el workflow |
-|-----------|----------------------|
+| Situación | Comportamiento |
+|-----------|----------------|
 | Carpeta origen **sin cambios** (mismo hash) | `status=skipped` → **no** ZIP nuevo, **no** sube a Drive |
+| Origen con ficheros nuevos/modificados | ZIP + Drive + aviso con `+N ~M -D` |
+| Origen **vaciado** (borraste todo) | ZIP full vacío + aviso **ORIGEN VACIADO** (antes N → ahora 0). `Rotación deleted=…` es retención de ZIPs viejos, **no** borrados del origen |
 | Borraste ficheros/carpeta **en Drive** pero el origen local no cambió | Sigue haciendo **skip**; Drive no se “rellena” solo |
 | Quieres forzar ZIP + subida | Borra el estado local o usa `-Force` (abajo) |
 
