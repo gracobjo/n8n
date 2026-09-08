@@ -187,7 +187,7 @@ Schedule (03:00)
 
 En **Rutas backup** pon `chatId` (p. ej. `328226271`). Misma credencial Telegram que el mensaje programado / uptime.
 
-Textos típicos (texto plano; **Parse Mode = None** — si usas Markdown, el `_` de `backup_full_…` rompe el mensaje):
+Textos típicos (**Parse Mode = HTML** en Additional Fields — n8n por defecto usa Markdown y el `_` de `backup_full_…` provoca el error `can't parse entities`):
 
 ```text
 Backup OK (full|differential|incremental)

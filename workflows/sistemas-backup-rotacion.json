@@ -232,10 +232,10 @@
     {
       "parameters": {
         "chatId": "={{ $('Parsear resultado').item.json.chatId }}",
-        "text": "=Backup OK ({{ $('Parsear resultado').item.json.mode }})\n{{ $('Parsear resultado').item.json.fileName }}\nArchivos: {{ $('Parsear resultado').item.json.fileCount }}\nHash: {{ $('Parsear resultado').item.json.contentHash }}\nDrive: {{ $('Subir a Google Drive').isExecuted ? ($('Subir a Google Drive').item.json.webViewLink || ('https://drive.google.com/open?id=' + $('Subir a Google Drive').item.json.id)) : 'n/d' }}\nHora: {{ $('Parsear resultado').item.json.ahora }}",
+        "text": "=Backup OK ({{ $('Parsear resultado').item.json.mode }})\n{{ $('Parsear resultado').item.json.fileName }}\nArchivos: {{ $('Parsear resultado').item.json.fileCount }}\nHash: {{ $('Parsear resultado').item.json.contentHash }}\nDrive: {{ $('Subir a Google Drive').isExecuted ? (($('Subir a Google Drive').item.json.webViewLink || ('https://drive.google.com/open?id=' + $('Subir a Google Drive').item.json.id)).replaceAll('&', '&amp;')) : 'n/d' }}\nHora: {{ $('Parsear resultado').item.json.ahora }}",
         "additionalFields": {
           "appendAttribution": false,
-          "parse_mode": "None"
+          "parse_mode": "HTML"
         }
       },
       "id": "tg-backup-ok-001",
@@ -276,7 +276,7 @@
         "text": "=Backup omitido (sin cambios)\nHash: {{ $json.contentHash }}\nHora: {{ $json.ahora }}",
         "additionalFields": {
           "appendAttribution": false,
-          "parse_mode": "None"
+          "parse_mode": "HTML"
         }
       },
       "id": "tg-backup-skip-001",
@@ -314,10 +314,10 @@
     {
       "parameters": {
         "chatId": "={{ $('Rutas backup').item.json.chatId }}",
-        "text": "=Backup KO\n{{ $json.message || $json.error?.message || $json.errorMessage || 'Error en pipeline backup' }}\nHora: {{ $now.setZone('Europe/Madrid').toFormat('dd/MM/yyyy HH:mm') }}",
+        "text": "=Backup KO\n{{ ($json.message || $json.error?.message || $json.errorMessage || 'Error en pipeline backup').toString().replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;') }}\nHora: {{ $now.setZone('Europe/Madrid').toFormat('dd/MM/yyyy HH:mm') }}",
         "additionalFields": {
           "appendAttribution": false,
-          "parse_mode": "None"
+          "parse_mode": "HTML"
         }
       },
       "id": "tg-backup-ko-001",
