@@ -186,6 +186,44 @@ Cada noche (~03:00): **hashear** el contenido de la carpeta origen. Si no hay ca
 
 Skip por hash sigue aplicando: si no hay cambios en origen, no se genera ZIP ni se sube a Drive.
 
+### Enlaces a USB, red u otro disco (symlink / junction)
+
+Puedes montar otras ubicaciones **dentro** de `n8n-backup-origen` sin copiar los ficheros. El script **sigue** junctions y enlaces simbólicos de carpeta; **no** sigue accesos directos `.lnk`.
+
+| Tipo | ¿Sirve? | Notas |
+|------|---------|--------|
+| **SymbolicLink** (`mklink /D` o `New-Item -ItemType SymbolicLink`) | Sí | USB, otra letra, UNC de red (`\\servidor\share`) |
+| **Junction** (`mklink /J`) | Sí | Suele valer para otra unidad local |
+| Acceso directo `.lnk` | **No** | Solo se ignoraría / no entra el contenido |
+
+Ejemplos (CMD o PowerShell **como administrador** si Windows lo pide):
+
+```powershell
+# USB (ej. E:\Documentos)
+New-Item -ItemType SymbolicLink `
+  -Path "$env:USERPROFILE\n8n-backup-origen\usb-docs" `
+  -Target "E:\Documentos"
+
+# Otro disco
+New-Item -ItemType SymbolicLink `
+  -Path "$env:USERPROFILE\n8n-backup-origen\disco-d" `
+  -Target "D:\Datos"
+
+# Carpeta de red
+New-Item -ItemType SymbolicLink `
+  -Path "$env:USERPROFILE\n8n-backup-origen\nas-fotos" `
+  -Target "\\NAS\fotos"
+```
+
+Equivalente CMD: `mklink /D "%USERPROFILE%\n8n-backup-origen\usb-docs" "E:\Documentos"`
+
+**Comportamiento**
+- En el ZIP aparecen como `usb-docs\...`, `nas-fotos\...` (ruta lógica bajo origen).
+- Si el USB/red no está disponible a la hora del backup → **falla** el escaneo (alerta KO). Para omitir enlaces rotos: `-AllowBrokenLinks` en el comando Execute (no recomendado en producción).
+- Unidades grandes = más tiempo de hash y ZIP más pesado.
+
+No hace falta Publish solo por actualizar el `.ps1` en disco; sí **Publish** si cambias el comando del nodo en el canvas.
+
 ### Retención (local + Drive): máximo 1 por tipo
 
 | Tras crear… | Se conserva | Se elimina |

@@ -1,5 +1,7 @@
 # Backup de carpeta: full / diferencial / incremental + skip si el hash no cambia.
-# Salida (última línea útil): JSON con status, mode, zipPath, contentHash, etc.
+# Soporta enlaces simbolicos y junctions bajo SourcePath (USB, red, otro disco)
+# sin copiar los ficheros a origen. NO seguir accesos directos .lnk (solo el .lnk).
+# Salida (última línea útil): JSON con status, mode, zipPath, contentHash, linkedRoots, etc.
 # Uso:
 #   .\backup-carpeta.ps1 -SourcePath ... -BackupDir ... -Mode auto
 # Modes: auto | full | differential | incremental
@@ -14,7 +16,10 @@ param(
   [int]$FullEveryDays = 7,
   [string]$ChatId = '',
   [int]$DaysToKeep = 7,
-  [switch]$Force
+  [switch]$Force,
+  # Si un junction/symlink no resuelve (USB desconectado), falla el backup (recomendado).
+  # Con -AllowBrokenLinks se omite esa rama y se continua.
+  [switch]$AllowBrokenLinks
 )
 
 Set-StrictMode -Version Latest
@@ -24,30 +29,94 @@ function Get-FileSha256([string]$Path) {
   return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
 }
 
-function Get-RelativePath([string]$Root, [string]$Full) {
-  $rootFull = [System.IO.Path]::GetFullPath($Root).TrimEnd('\', '/')
-  $fileFull = [System.IO.Path]::GetFullPath($Full)
-  if ($fileFull.StartsWith($rootFull, [System.StringComparison]::OrdinalIgnoreCase)) {
-    return $fileFull.Substring($rootFull.Length).TrimStart('\', '/').Replace('\', '/')
+function Get-ReparseTarget([System.IO.FileSystemInfo]$Item) {
+  if (-not ($Item.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
+    return $null
   }
-  return $fileFull.Replace('\', '/')
+  $t = $null
+  try { $t = $Item.Target } catch { return $null }
+  if ($null -eq $t) { return $null }
+  if ($t -is [System.Array]) {
+    if ($t.Count -eq 0) { return $null }
+    return [string]$t[0]
+  }
+  return [string]$t
 }
 
 function Build-Manifest([string]$Root) {
-  $entries = @()
-  Get-ChildItem -LiteralPath $Root -Recurse -File -Force -ErrorAction Stop |
-    Sort-Object FullName |
-    ForEach-Object {
-      $rel = Get-RelativePath -Root $Root -Full $_.FullName
-      $hash = Get-FileSha256 $_.FullName
-      $entries += [pscustomobject]@{
-        path         = $rel
-        sha256       = $hash
-        length       = [int64]$_.Length
-        lastWriteUtc = $_.LastWriteTimeUtc.ToString('o')
+  $entries = [System.Collections.Generic.List[object]]::new()
+  $linkedRoots = [System.Collections.Generic.List[object]]::new()
+  $brokenLinks = [System.Collections.Generic.List[string]]::new()
+  $skippedLnk = [System.Collections.Generic.List[string]]::new()
+  $visitedTargets = @{}
+
+  function Walk-Dir([string]$AbsDir, [string]$RelPrefix) {
+    $items = @(Get-ChildItem -LiteralPath $AbsDir -Force -ErrorAction Stop)
+    foreach ($item in $items) {
+      $name = $item.Name
+      $rel = if ([string]::IsNullOrEmpty($RelPrefix)) { $name } else { "$RelPrefix/$name" }
+      $abs = Join-Path $AbsDir $name
+
+      if ($item.PSIsContainer) {
+        $target = Get-ReparseTarget $item
+        if ($null -ne $target -and $target -ne '') {
+          $targetFull = $null
+          try { $targetFull = [System.IO.Path]::GetFullPath($target) } catch { $targetFull = $target }
+
+          if (-not (Test-Path -LiteralPath $abs)) {
+            $msg = "Enlace roto o destino inaccesible: $rel -> $target"
+            Write-Host $msg
+            $brokenLinks.Add($msg) | Out-Null
+            if (-not $AllowBrokenLinks) {
+              throw $msg
+            }
+            continue
+          }
+
+          if ($visitedTargets.ContainsKey($targetFull)) {
+            Write-Host "Omitido enlace ciclico/duplicado: $rel -> $targetFull"
+            continue
+          }
+          $visitedTargets[$targetFull] = $true
+
+          $linkedRoots.Add([pscustomobject]@{
+              path   = $rel.Replace('\', '/')
+              target = $targetFull
+              type   = if ($item.LinkType) { [string]$item.LinkType } else { 'ReparsePoint' }
+            }) | Out-Null
+
+          Write-Host "Siguiendo enlace: $rel -> $targetFull"
+          Walk-Dir -AbsDir $abs -RelPrefix $rel
+          continue
+        }
+
+        Walk-Dir -AbsDir $abs -RelPrefix $rel
+        continue
       }
+
+      # Fichero
+      if ($name -like '*.lnk') {
+        $skippedLnk.Add($rel.Replace('\', '/')) | Out-Null
+        Write-Host "Omitido acceso directo .lnk (no se sigue): $rel"
+        continue
+      }
+
+      $hash = Get-FileSha256 $abs
+      $entries.Add([pscustomobject]@{
+          path         = $rel.Replace('\', '/')
+          sha256       = $hash
+          length       = [int64]$item.Length
+          lastWriteUtc = $item.LastWriteTimeUtc.ToString('o')
+        }) | Out-Null
     }
-  $payload = ($entries | ForEach-Object { "$($_.path)|$($_.sha256)|$($_.length)" }) -join "`n"
+  }
+
+  $rootFull = [System.IO.Path]::GetFullPath($Root)
+  $visitedTargets[$rootFull] = $true
+  Walk-Dir -AbsDir $rootFull -RelPrefix ''
+
+  $sorted = @($entries | Sort-Object path)
+  $payload = ($sorted | ForEach-Object { "$($_.path)|$($_.sha256)|$($_.length)" }) -join "`n"
   $contentHash = if ([string]::IsNullOrEmpty($payload)) {
     'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'
   } else {
@@ -59,12 +128,16 @@ function Build-Manifest([string]$Root) {
       $sha.Dispose()
     }
   }
+
   return [pscustomobject]@{
-    createdAt    = (Get-Date).ToUniversalTime().ToString('o')
-    root         = [System.IO.Path]::GetFullPath($Root)
-    contentHash  = $contentHash
-    fileCount    = $entries.Count
-    files        = $entries
+    createdAt     = (Get-Date).ToUniversalTime().ToString('o')
+    root          = $rootFull
+    contentHash   = $contentHash
+    fileCount     = $sorted.Count
+    files         = $sorted
+    linkedRoots   = @($linkedRoots)
+    brokenLinks   = @($brokenLinks)
+    skippedLnk    = @($skippedLnk)
   }
 }
 
@@ -213,9 +286,31 @@ if ($null -eq $state) {
   }
 }
 
-Write-Host "Escaneando y hasheando: $SourcePath"
-$manifest = Build-Manifest -Root $SourcePath
+Write-Host "Escaneando y hasheando (sigue junctions/symlinks; omite .lnk): $SourcePath"
+try {
+  $manifest = Build-Manifest -Root $SourcePath
+} catch {
+  Emit-Result ([pscustomobject]@{
+      status          = 'error'
+      reason          = 'source_scan_failed'
+      mode            = 'none'
+      zipPath         = $null
+      fileName        = $null
+      contentHash     = ''
+      fileCount       = 0
+      sourceFileCount = 0
+      sourcePath      = [System.IO.Path]::GetFullPath($SourcePath)
+      backupDir       = [System.IO.Path]::GetFullPath($BackupDir)
+      linkedRoots     = @()
+      brokenLinks     = @($_.Exception.Message)
+      message         = "Fallo al escanear origen (enlace roto, USB/red desconectada u otro): $($_.Exception.Message)"
+    })
+  exit 1
+}
 Write-JsonFile -Path $manifestCurrentPath -Object $manifest
+if (@($manifest.linkedRoots).Count -gt 0) {
+  Write-Host ("Enlaces incluidos: " + (($manifest.linkedRoots | ForEach-Object { "$($_.path)->$($_.target)" }) -join '; '))
+}
 
 $previousManifest = Read-JsonFile $manifestLastBackupPath
 if ($null -eq $previousManifest) {
@@ -246,6 +341,8 @@ if ($unchanged) {
       backupDir       = [System.IO.Path]::GetFullPath($BackupDir)
       lastZip         = $state.lastZip
       lastFullZip     = $state.lastFullZip
+      linkedRoots     = @($manifest.linkedRoots)
+      brokenLinks     = @($manifest.brokenLinks)
       message         = 'Sin cambios respecto al ultimo backup; no se genera ZIP ni subida.'
     })
   exit 0
@@ -381,5 +478,7 @@ Emit-Result ([pscustomobject]@{
     backupDir         = [System.IO.Path]::GetFullPath($BackupDir)
     lastZip           = $zipPath
     lastFullZip       = $state.lastFullZip
+    linkedRoots       = @($manifest.linkedRoots)
+    brokenLinks       = @($manifest.brokenLinks)
     message           = (Format-ChangeMessage -Summary $changeSummary -ResolvedMode $resolvedMode -ZipFileCount $filesToZip.Count)
   })

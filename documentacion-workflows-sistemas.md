@@ -65,7 +65,7 @@ Pensadas para alguien que **no** ha seguido la conversación de configuración. 
 | | |
 |--|--|
 | **Archivo** | [`workflows/sistemas-backup-rotacion.json`](./workflows/sistemas-backup-rotacion.json) + [`backup-carpeta.ps1`](./workflows/backup-carpeta.ps1) + [`rotar-backups.ps1`](./workflows/rotar-backups.ps1) + [`seleccionar-retencion-drive.js`](./workflows/seleccionar-retencion-drive.js) |
-| **Qué hace** | Hashea la carpeta origen (SHA-256). Sin cambios → **skip**. Con cambios → ZIP según **ciclo semanal Madrid** (`auto`: dom=full, lun–vie=incr, sáb=diff), sube a Drive, retención **máx. 1** full/diff/incr (local + Drive) y avisa Gmail + Telegram (OK / omitido / KO). |
+| **Qué hace** | Hashea la carpeta origen (SHA-256). Sigue **symlinks/junctions** (USB, red, otro disco) bajo origen; omite `.lnk`. Sin cambios → **skip**. Con cambios → ZIP según **ciclo semanal Madrid** (`auto`: dom=full, lun–vie=incr, sáb=diff), sube a Drive, retención **máx. 1** full/diff/incr (local + Drive) y avisa Gmail + Telegram (OK / omitido / KO). |
 | **Qué no hace** | No hace backup de BBDD salvo otro script; no cifra; no restaura solo; no versiona borrados como tombstones en diff/incr. |
 | **Tipo de backup** | **Full + diferencial + incremental**, skip por hash, keep-one + cascada (full limpia diff/incr; diff limpia incr). |
 | **Entradas** | `n8n-backup-origen` → `n8n-backups`; `mode=auto` / `fullEveryDays` / `chatId`; scripts `.ps1`; Gmail + Drive + Telegram. |
