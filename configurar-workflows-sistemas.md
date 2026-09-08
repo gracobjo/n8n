@@ -159,7 +159,27 @@ Cada noche (~03:00): **hashear** el contenido de la carpeta origen. Si no hay ca
 | **full** | `backup_full_*.zip` | Todos los ficheros | Actualiza baseline de full y de “último backup” |
 | **differential** | `backup_diff_*.zip` | Solo ficheros nuevos/cambiados **desde el último full** | Actualiza “último backup”; no cambia el full |
 | **incremental** | `backup_incr_*.zip` | Solo ficheros nuevos/cambiados **desde el último backup** (cualquier modo) | Actualiza “último backup” |
-| **auto** (default) | — | Si hash igual → **skip**. Si no hay full o pasaron `fullEveryDays` (7) → **full**. Si no → **differential** | — |
+| **auto** (default) | — | Si hash igual → **skip**. Si no → **ciclo semanal Madrid** (abajo). Si no hay full o el último full tiene ≥ `fullEveryDays` (7) → **full** | — |
+
+#### Ciclo semanal (`mode=auto`, zona `Europe/Madrid`)
+
+| Día | Tipo | Rol |
+|-----|------|-----|
+| **Domingo** | full | Base semanal (restauración total) |
+| **Lunes–viernes** | incremental | Solo cambios desde el último backup |
+| **Sábado** | differential | Cambios desde el último full; al crearla se eliminan los incr |
+
+Skip por hash sigue aplicando: si no hay cambios en origen, no se genera ZIP ni se sube a Drive.
+
+### Retención (local + Drive): máximo 1 por tipo
+
+| Tras crear… | Se conserva | Se elimina |
+|-------------|-------------|------------|
+| **full** | 1 full (el nuevo) | fulls viejos + **todos** diff e incr |
+| **differential** | 1 full + 1 diff | diffs viejos + **todos** incr |
+| **incremental** | 1 full + 1 diff + 1 incr | incrs viejos |
+
+Misma lógica en `n8n-backups` (`rotar-backups.ps1 -AfterMode …`) y en la carpeta de Google Drive (nodos Listar → Seleccionar → Borrar).
 
 Estado en disco: `n8n-backups\.backup-state\` (`state.json`, `manifest-*.json` con SHA-256 por fichero).
 
@@ -167,13 +187,14 @@ Estado en disco: `n8n-backups\.backup-state\` (`state.json`, `manifest-*.json` c
 
 ```text
 Schedule (03:00)
-  → Rutas backup (sourcePath, backupDir, mode=auto, fullEveryDays, chatId)
+  → Rutas backup (sourcePath, backupDir, mode=auto, fullEveryDays=7, chatId)
   → Ejecutar backup (backup-carpeta.ps1)  [error → Gmail/Telegram KO]
   → Parsear resultado
   → IF fallo → Gmail + Telegram KO
   → IF ZIP creado
-       → sí: Leer ZIP → Drive → Rotación → Gmail + Telegram OK
-            (error en Leer/Drive/Rotación → Gmail + Telegram KO)
+       → sí: Leer ZIP → Drive upload
+            → Listar ZIPs Drive → Seleccionar retención → (borrar antiguos si hace falta)
+            → Rotación local → Gmail + Telegram OK
        → no: Gmail + Telegram “sin cambios”
 ```
 
@@ -201,17 +222,7 @@ Backup KO
 detalle del error
 ```
 
-En Gmail OK, el bloque de rotación debe titularse así (no solo `Rotación:`):
-
-```text
----
-Limpieza de ZIPs antiguos en disco (retencion).
-Esto NO indica ficheros borrados en la carpeta origen.
-Retencion ZIPs locales (NO es el origen): ningun ZIP antiguo eliminado. politica: full 28d / …
----
-```
-
-`deleted=0; files=` = cero ZIPs caducados borrados de `n8n-backups`, no del origen.
+En Gmail OK verás dos bloques: **Retencion Drive** y **Retencion local** (ambos con política max 1 por tipo; no son borrados del origen).
 
 ### Importar / actualizar
 
@@ -228,6 +239,8 @@ Retencion ZIPs locales (NO es el origen): ningun ZIP antiguo eliminado. politica
 Scripts: [`backup-carpeta.ps1`](./workflows/backup-carpeta.ps1), [`rotar-backups.ps1`](./workflows/rotar-backups.ps1).
 
 ### Retención (`rotar-backups.ps1`)
+
+Máximo **1 full + 1 diff + 1 incr** en disco. Parámetro `-AfterMode full|differential|incremental` aplica la cascada (full limpia diff/incr; diff limpia incr).
 
 | Patrón | Días por defecto |
 |--------|------------------|

@@ -3,7 +3,8 @@
 # Uso:
 #   .\backup-carpeta.ps1 -SourcePath ... -BackupDir ... -Mode auto
 # Modes: auto | full | differential | incremental
-# auto: skip si sin cambios; full cada FullEveryDays (default 7) o si no hay full; si no → differential
+# auto: skip si sin cambios; si no → ciclo semanal Madrid (dom=full, sab=diff, lun-vie=incr);
+#       fuerza full si no hay full o el ultimo full tiene >= FullEveryDays dias.
 
 param(
   [string]$SourcePath = "$env:USERPROFILE\n8n-backup-origen",
@@ -252,17 +253,38 @@ if ($unchanged) {
 
 $resolvedMode = $Mode
 if ($Mode -eq 'auto') {
-  $needFull = $true
-  if ($state.lastFullAt) {
-    try {
-      $lastFull = [datetime]::Parse($state.lastFullAt, $null, [System.Globalization.DateTimeStyles]::RoundtripKind)
-      $needFull = ((Get-Date).ToUniversalTime() - $lastFull.ToUniversalTime()).TotalDays -ge $FullEveryDays
-    } catch {
-      $needFull = $true
+  if (-not (Test-Path -LiteralPath $manifestLastFullPath)) {
+    Write-Host "Auto: no hay full previo → FULL"
+    $resolvedMode = 'full'
+  } else {
+    # Ciclo semanal (Europe/Madrid): dom=full, sab=diff, lun-vie=incr
+    $tz = $null
+    foreach ($tzId in @('Romance Standard Time', 'Europe/Madrid')) {
+      try { $tz = [TimeZoneInfo]::FindSystemTimeZoneById($tzId); break } catch { }
     }
+    $madridNow = if ($tz) {
+      [TimeZoneInfo]::ConvertTimeFromUtc([datetime]::UtcNow, $tz)
+    } else {
+      Get-Date
+    }
+    $resolvedMode = switch ($madridNow.DayOfWeek) {
+      'Sunday' { 'full' }
+      'Saturday' { 'differential' }
+      default { 'incremental' }
+    }
+    # Red de seguridad: si el ultimo full es demasiado antiguo, forzar full
+    if ($state.lastFullAt) {
+      try {
+        $lastFull = [datetime]::Parse($state.lastFullAt, $null, [System.Globalization.DateTimeStyles]::RoundtripKind)
+        $daysSinceFull = ((Get-Date).ToUniversalTime() - $lastFull.ToUniversalTime()).TotalDays
+        if ($daysSinceFull -ge [Math]::Max(1, $FullEveryDays)) {
+          Write-Host "Auto: ultimo full hace $([int]$daysSinceFull)d (>= $FullEveryDays) → FULL"
+          $resolvedMode = 'full'
+        }
+      } catch { }
+    }
+    Write-Host ("Auto: {0:dddd} Madrid → {1}" -f $madridNow, $resolvedMode)
   }
-  if (-not (Test-Path -LiteralPath $manifestLastFullPath)) { $needFull = $true }
-  $resolvedMode = if ($needFull) { 'full' } else { 'differential' }
 }
 
 $stamp = Get-Date -Format 'yyyy-MM-dd_HHmm'
