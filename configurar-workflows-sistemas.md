@@ -12,13 +12,28 @@ Guía para montar los 5 patrones de automatización de sistemas que propones, **
 |---------|------|--------|
 | [`workflows/sistemas-uptime-health.json`](./workflows/sistemas-uptime-health.json) | Monitor HTTP + alerta Gmail | Probado (HTTP 200 en n8n local) |
 | [`workflows/sistemas-vigilancia-carpeta.json`](./workflows/sistemas-vigilancia-carpeta.json) | Local File Trigger → mover a Procesados | Probado (PDF + email) |
-| [`workflows/sistemas-backup-rotacion.json`](./workflows/sistemas-backup-rotacion.json) | ZIP full/diff/incr + skip + Drive + Gmail/Telegram | Hash + modos documentados |
+| [`workflows/sistemas-backup-rotacion.json`](./workflows/sistemas-backup-rotacion.json) | ZIP ciclo semanal + skip + Drive keep-1 + Gmail/Telegram | Ver guía + Publish tras canvas |
 | [`workflows/backup-carpeta.ps1`](./workflows/backup-carpeta.ps1) | Script PowerShell de ZIP | Auxiliar |
 | [`workflows/rotar-backups.ps1`](./workflows/rotar-backups.ps1) | Script rotación `backup_*.zip` | Evita bug `$` en Execute Command |
 
 Los casos 4 (deploy Docker) y 5 (auditoría logs) siguen documentados abajo para montarlos a mano.
 
 **Fichas cortas (qué hace / qué no / backup / E-S):** [§2 de la documentación](./documentacion-workflows-sistemas.md#2-fichas-por-workflow-lectura-rápida).
+
+---
+
+## Publish obligatorio tras editar el canvas (n8n 2.x)
+
+En n8n **2.x** el Schedule / triggers activos ejecutan la versión **publicada**, no el borrador del editor.
+
+| Acción en el canvas | ¿Hace falta Publish? |
+|---------------------|----------------------|
+| Cambiar Code, Gmail, Telegram, Execute Command, IF, Drive, Set… | **Sí** — **Publish** (o el workflow sigue con la lógica antigua) |
+| Solo **Test workflow** / ejecutar un nodo | No publica; la prueba usa el borrador, el cron no |
+| Importar JSON o pegar nodos | **Sí** — guardar + **Publish** |
+| Cambiar solo un `.ps1` en disco (`backup-carpeta.ps1`, `rotar-backups.ps1`) | No hace falta Publish *si* el comando del nodo ya apunta a ese archivo; el próximo run ya usa el script nuevo |
+
+**Regla práctica:** después de **cada** cambio en el canvas → **Publish**. Si el mail/Telegram “no refleja” lo que acabas de editar, casi seguro falta publicar.
 
 ---
 
@@ -234,7 +249,7 @@ En Gmail OK verás dos bloques: **Retencion Drive** y **Retencion local** (ambos
    - `fullEveryDays`: `7`
    - `chatId`: tu Telegram
 5. Credenciales Gmail, Drive, Telegram.
-6. Test → Publish.
+6. Test → **Publish** (imprescindible; ver [Publish obligatorio](#publish-obligatorio-tras-editar-el-canvas-n8n-2x)).
 
 Scripts: [`backup-carpeta.ps1`](./workflows/backup-carpeta.ps1), [`rotar-backups.ps1`](./workflows/rotar-backups.ps1).
 

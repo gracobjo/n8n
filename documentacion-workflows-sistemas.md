@@ -64,13 +64,13 @@ Pensadas para alguien que **no** ha seguido la conversación de configuración. 
 
 | | |
 |--|--|
-| **Archivo** | [`workflows/sistemas-backup-rotacion.json`](./workflows/sistemas-backup-rotacion.json) + [`backup-carpeta.ps1`](./workflows/backup-carpeta.ps1) + [`rotar-backups.ps1`](./workflows/rotar-backups.ps1) |
-| **Qué hace** | Hashea la carpeta origen (SHA-256 por fichero). Si no hay cambios → **omite** ZIP y Drive. Si hay cambios → ZIP **full**, **diferencial** o **incremental**, sube a Drive, rota retención y avisa por Gmail + Telegram. Modo `auto`: full cada 7 días, resto differential. |
-| **Qué no hace** | No hace backup de bases de datos salvo otro script; no cifra; no restaura solo; no versiona borrados como “tombstones” en diff/incr (un borrado masivo puede forzar full). |
-| **Tipo de backup** | **Full + diferencial + incremental**, con **skip por hash**. Ver tabla de modos en la guía operativa. |
-| **Entradas** | `n8n-backup-origen` → `n8n-backups`; `mode` / `fullEveryDays` / `chatId`; scripts `.ps1`; Gmail + Drive + Telegram. |
-| **Salidas** | ZIP `backup_full|diff|incr_*.zip` o skip; estado en `.backup-state\`; Drive solo si `created`; **Gmail + Telegram** en OK / omitido / **KO**. |
-| **Estado** | Scripts + JSON con ramas Telegram OK/skip/KO y `onError` en pipeline. |
+| **Archivo** | [`workflows/sistemas-backup-rotacion.json`](./workflows/sistemas-backup-rotacion.json) + [`backup-carpeta.ps1`](./workflows/backup-carpeta.ps1) + [`rotar-backups.ps1`](./workflows/rotar-backups.ps1) + [`seleccionar-retencion-drive.js`](./workflows/seleccionar-retencion-drive.js) |
+| **Qué hace** | Hashea la carpeta origen (SHA-256). Sin cambios → **skip**. Con cambios → ZIP según **ciclo semanal Madrid** (`auto`: dom=full, lun–vie=incr, sáb=diff), sube a Drive, retención **máx. 1** full/diff/incr (local + Drive) y avisa Gmail + Telegram (OK / omitido / KO). |
+| **Qué no hace** | No hace backup de BBDD salvo otro script; no cifra; no restaura solo; no versiona borrados como tombstones en diff/incr. |
+| **Tipo de backup** | **Full + diferencial + incremental**, skip por hash, keep-one + cascada (full limpia diff/incr; diff limpia incr). |
+| **Entradas** | `n8n-backup-origen` → `n8n-backups`; `mode=auto` / `fullEveryDays` / `chatId`; scripts `.ps1`; Gmail + Drive + Telegram. |
+| **Salidas** | ZIP `backup_full|diff|incr_*.zip` o skip; estado en `.backup-state\`; Drive con ≤1 por tipo; **Gmail + Telegram**. |
+| **Estado** | Scripts + JSON con retención Drive; **tras editar el canvas → Publish** (n8n 2.x ejecuta la versión publicada). |
 
 ### 2.3 Vigilancia de carpeta local
 
@@ -163,9 +163,9 @@ Pensadas para alguien que **no** ha seguido la conversación de configuración. 
 | RNF-03 | Seguridad | No concatenar input de Webhook público en comandos sin sanitizar |
 | RNF-04 | Portabilidad | Rutas Windows absolutas (`C:\Users\…`); expresiones con `/` y `trim` para el nodo de archivos |
 | RNF-05 | Operación | Arranque reproducible vía `start-n8n.ps1` y variables de entorno de **Usuario** Windows |
-| RNF-06 | Disponibilidad | Workflows Publish; Schedule / Local File Trigger activos tras reinicio de n8n |
+| RNF-06 | Disponibilidad | Tras **cada** cambio en el canvas → **Publish**; Schedule / triggers usan la versión publicada (n8n 2.x), no el borrador |
 | RNF-07 | Observabilidad | Confirmación o alerta por Gmail (`gracobjo@gmail.com` en entorno de prueba) |
-| RNF-08 | Retención | Full 28d / diff 14d / incr 7d (configurable en `rotar-backups.ps1`) |
+| RNF-08 | Retención | Máx. 1 full + 1 diff + 1 incr (local y Drive); cascada full→limpia diff/incr, diff→limpia incr |
 | RNF-09 | Integración | Google Drive OAuth2 + **Google Drive API** habilitada en el proyecto de Google Cloud |
 | RNF-10 | Usabilidad | Fichas «qué hace / qué no hace» en §2 para onboarding sin contexto del chat |
 
@@ -355,8 +355,11 @@ flowchart LR
   Z --> P[Parsear JSON]
   P --> I{ZIP creado?}
   I -->|sí| RD[Leer ZIP]
-  RD --> DR[Drive]
-  DR --> ROT[rotar-backups.ps1]
+  RD --> DR[Drive upload]
+  DR --> L[Listar ZIPs Drive]
+  L --> SEL[Seleccionar retención]
+  SEL --> DEL[Borrar antiguos si hace falta]
+  DEL --> ROT[rotar-backups.ps1 keep-1]
   ROT --> G[Gmail+Telegram]
   I -->|no skip| SK[Gmail+Telegram sin cambios]
 ```
@@ -440,4 +443,6 @@ flowchart LR
 - Añadidas fichas por workflow (§2): qué hace / qué no hace / tipo de backup / entradas-salidas.
 - `GENERIC_TIMEZONE=Europe/Madrid` en arranque; guía Telegram con mapa «dónde se configura» (chat_id, credencial, timezone workflow vs nodo).
 - Backup: hash SHA-256, skip si sin cambios, full/diff/incr; vaciar Drive no fuerza re-subida (borrar `.backup-state` o `-Force`).
+- Ciclo semanal `auto` (Madrid): dom=full, lun–vie=incr, sáb=diff; retención max 1 por tipo en local y Drive.
+- **Publish obligatorio** tras cada edición del canvas (n8n 2.x: el cron usa la versión publicada).
 - JSON Drive usa placeholder `PEGAR_ID_CARPETA_GOOGLE_DRIVE` (actualizar tras recrear carpeta).

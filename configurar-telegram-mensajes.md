@@ -20,7 +20,7 @@ Mapa rápido (lo que más confunde: **Settings del nodo ≠ Settings del workflo
 | **Timezone del Schedule** (instancia) | Variable `GENERIC_TIMEZONE` + [`start-n8n.ps1`](./start-n8n.ps1); reiniciar n8n | `Europe/Madrid` |
 | **Timezone del Schedule** (este workflow) | Canvas → menú **⋯** o engranaje del **workflow** (arriba) → **Settings** → Timezone | `Europe/Madrid` |
 | **Hora impresa en el texto** | Nodo Telegram → campo **Text** → expresión `$now.setZone(...)` | Ver abajo |
-| **Publish / activo** | Interruptor Active del workflow | Debe estar ON para las 09:00 automáticas |
+| **Publish / activo** | Interruptor Active + botón **Publish** | Tras **cualquier** cambio en el canvas hay que **Publish**; si no, el Schedule sigue con la versión antigua (n8n 2.x). Ver también la [guía de sistemas](./configurar-workflows-sistemas.md#publish-obligatorio-tras-editar-el-canvas-n8n-2x). |
 
 ### Qué NO es el timezone
 
