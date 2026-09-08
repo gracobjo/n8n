@@ -186,43 +186,182 @@ Cada noche (~03:00): **hashear** el contenido de la carpeta origen. Si no hay ca
 
 Skip por hash sigue aplicando: si no hay cambios en origen, no se genera ZIP ni se sube a Drive.
 
-### Enlaces a USB, red u otro disco (symlink / junction)
+### Enlaces simbólicos / junctions (incluir otras carpetas sin copiarlas)
 
-Puedes montar otras ubicaciones **dentro** de `n8n-backup-origen` sin copiar los ficheros. El script **sigue** junctions y enlaces simbólicos de carpeta; **no** sigue accesos directos `.lnk`.
+Idea: dentro de `C:\Users\chuwi\n8n-backup-origen` creas una **carpeta-enlace**. El backup la recorre como si los ficheros estuvieran ahí, pero viven en USB, otro disco o una unidad de red.
 
-| Tipo | ¿Sirve? | Notas |
-|------|---------|--------|
-| **SymbolicLink** (`mklink /D` o `New-Item -ItemType SymbolicLink`) | Sí | USB, otra letra, UNC de red (`\\servidor\share`) |
-| **Junction** (`mklink /J`) | Sí | Suele valer para otra unidad local |
-| Acceso directo `.lnk` | **No** | Solo se ignoraría / no entra el contenido |
+```text
+n8n-backup-origen\
+  representacionVoluntaria.pdf     ← fichero local normal
+  Documents\      → symlink → C:\Users\chuwi\Documents
+  cuentas-usb\    → symlink → D:\cuentas
+  nas-fotos\      → symlink → \\NAS\fotos
+```
 
-Ejemplos (CMD o PowerShell **como administrador** si Windows lo pide):
+En el ZIP saldrán rutas lógicas: `Documents\...`, `cuentas-usb\...`, `nas-fotos\...`.
+
+#### Qué sirve y qué no
+
+| Destino / tipo | ¿El backup lo incluye? | Cómo |
+|----------------|------------------------|------|
+| Carpeta en el mismo PC (`C:\Users\...\Documents`) | Sí | SymbolicLink o Junction |
+| USB / otra letra (`D:\cuentas`, `E:\Fotos`) | Sí | SymbolicLink (USB conectado en `D:`/`E:` a la hora del backup) |
+| Unidad de red UNC (`\\servidor\share\carpeta`) | Sí | SymbolicLink; la red debe estar accesible (VPN/credenciales) |
+| Unidad de red con letra (`Z:\Datos`) | Sí | SymbolicLink a `Z:\Datos` (la letra debe existir al respaldar) |
+| Acceso directo del Explorador (`.lnk`) | **No** | El script **omite** `.lnk`; no sigue el destino |
+| URL web (`https://...`, `http://...`, Drive web, OneDrive enlace compartido) | **No** | Windows **no** puede hacer symlink a una URL. Hay que sincronizar/descargar a disco y enlazar esa carpeta local, o usar otro workflow (HTTP download) |
+
+#### Requisitos
+
+1. PowerShell o CMD **como administrador** si Windows deniega la creación del enlace.
+2. El path de destino debe existir **antes** de crear el enlace (o el enlace quedará roto).
+3. Nombre del enlace: solo letras/números/guiones; será el prefijo dentro del ZIP.
+4. Tras crear enlaces **no** hace falta Publish (solo cambia el disco). Sí Publish si tocas el canvas de n8n.
+
+#### Comando base (PowerShell)
 
 ```powershell
-# USB (ej. E:\Documentos)
 New-Item -ItemType SymbolicLink `
-  -Path "$env:USERPROFILE\n8n-backup-origen\usb-docs" `
-  -Target "E:\Documentos"
+  -Path "$env:USERPROFILE\n8n-backup-origen\NOMBRE-EN-ORIGEN" `
+  -Target "RUTA-REAL-DESTINO"
+```
 
-# Otro disco
+- `NOMBRE-EN-ORIGEN` = cómo se verá dentro de `n8n-backup-origen` y en el ZIP.
+- `RUTA-REAL-DESTINO` = carpeta real (local, USB o UNC).
+
+Equivalente CMD:
+
+```bat
+mklink /D "%USERPROFILE%\n8n-backup-origen\NOMBRE-EN-ORIGEN" "RUTA-REAL-DESTINO"
+```
+
+Junction (alternativa en disco local; a veces no necesita los mismos privilegios):
+
+```bat
+mklink /J "%USERPROFILE%\n8n-backup-origen\NOMBRE-EN-ORIGEN" "RUTA-REAL-DESTINO"
+```
+
+#### Ejemplos claros
+
+**1) Otra carpeta del mismo usuario (Documents)**
+
+```powershell
 New-Item -ItemType SymbolicLink `
-  -Path "$env:USERPROFILE\n8n-backup-origen\disco-d" `
-  -Target "D:\Datos"
+  -Path "$env:USERPROFILE\n8n-backup-origen\Documents" `
+  -Target "C:\Users\chuwi\Documents"
+```
 
-# Carpeta de red
+**2) Subcarpeta concreta (recomendado si Documents es enorme)**
+
+```powershell
+New-Item -ItemType SymbolicLink `
+  -Path "$env:USERPROFILE\n8n-backup-origen\docs-trabajo" `
+  -Target "C:\Users\chuwi\Documents\Trabajo"
+```
+
+**3) USB (`D:\cuentas`)**
+
+Con el USB conectado y visible como `D:`:
+
+```powershell
+New-Item -ItemType SymbolicLink `
+  -Path "$env:USERPROFILE\n8n-backup-origen\cuentas-usb" `
+  -Target "D:\cuentas"
+```
+
+**4) Otro disco interno (`E:\Archivos`)**
+
+```powershell
+New-Item -ItemType SymbolicLink `
+  -Path "$env:USERPROFILE\n8n-backup-origen\disco-e" `
+  -Target "E:\Archivos"
+```
+
+**5) Unidad de red por UNC (recomendado frente a letra)**
+
+```powershell
 New-Item -ItemType SymbolicLink `
   -Path "$env:USERPROFILE\n8n-backup-origen\nas-fotos" `
   -Target "\\NAS\fotos"
+# o: "\\192.168.1.20\datos\backup"
 ```
 
-Equivalente CMD: `mklink /D "%USERPROFILE%\n8n-backup-origen\usb-docs" "E:\Documentos"`
+**6) Unidad de red ya montada como letra (`Z:`)**
 
-**Comportamiento**
-- En el ZIP aparecen como `usb-docs\...`, `nas-fotos\...` (ruta lógica bajo origen).
-- Si el USB/red no está disponible a la hora del backup → **falla** el escaneo (alerta KO). Para omitir enlaces rotos: `-AllowBrokenLinks` en el comando Execute (no recomendado en producción).
-- Unidades grandes = más tiempo de hash y ZIP más pesado.
+```powershell
+New-Item -ItemType SymbolicLink `
+  -Path "$env:USERPROFILE\n8n-backup-origen\red-z" `
+  -Target "Z:\Datos"
+```
 
-No hace falta Publish solo por actualizar el `.ps1` en disco; sí **Publish** si cambias el comando del nodo en el canvas.
+**7) URLs (`https://...`) — no soportado como symlink**
+
+Esto **falla** o no tiene sentido en Windows:
+
+```powershell
+# NO VÁLIDO — no uses URLs como -Target
+# New-Item -ItemType SymbolicLink -Path "...\web" -Target "https://example.com/files"
+```
+
+Opciones reales:
+
+| Necesitas respaldar… | Qué hacer |
+|----------------------|-----------|
+| Carpeta de **Google Drive / OneDrive** instalada en el PC | Enlaza la ruta local del cliente, p. ej. `C:\Users\chuwi\Google Drive\MiCarpeta` o `C:\Users\chuwi\OneDrive\Documentos` |
+| Ficheros solo en una **URL** (sin sync local) | Otro workflow: HTTP Request / download a `n8n-backup-origen\descargas\...` y luego el backup normal |
+| Enlace compartido web de Drive | No es un path de disco; sincroniza la carpeta con la app de Drive y enlaza esa ruta local |
+
+Ejemplo OneDrive / Drive local:
+
+```powershell
+New-Item -ItemType SymbolicLink `
+  -Path "$env:USERPROFILE\n8n-backup-origen\onedrive-docs" `
+  -Target "$env:USERPROFILE\OneDrive\Documentos"
+
+New-Item -ItemType SymbolicLink `
+  -Path "$env:USERPROFILE\n8n-backup-origen\gdrive-trabajo" `
+  -Target "C:\Users\chuwi\Google Drive\Trabajo"
+```
+
+(Ajusta la ruta a la que tenga tu PC; compruébala en el Explorador → clic derecho → Propiedades.)
+
+#### Comprobar que el enlace está bien
+
+```powershell
+Get-Item "$env:USERPROFILE\n8n-backup-origen\*" |
+  Select-Object Name, LinkType, Target, FullName
+
+# Destino alcanzable ahora mismo
+Test-Path "D:\cuentas"
+Test-Path "\\NAS\fotos"
+Get-ChildItem "$env:USERPROFILE\n8n-backup-origen\cuentas-usb" | Select-Object -First 5
+```
+
+Salida correcta de un symlink:
+
+```text
+Name         LinkType     Target
+----         --------     ------
+cuentas-usb  SymbolicLink {D:\cuentas}
+Documents    SymbolicLink {C:\Users\chuwi\Documents}
+```
+
+#### Borrar un enlace (no borra los ficheros del USB/destino)
+
+```powershell
+# Solo quita el enlace dentro de n8n-backup-origen
+Remove-Item "$env:USERPROFILE\n8n-backup-origen\cuentas-usb"
+```
+
+#### Comportamiento del backup
+
+- El script **sigue** `SymbolicLink` y `Junction` de carpeta.
+- **Omite** ficheros `.lnk`.
+- Si el USB no está en `D:`, la red cae o el destino no existe → el escaneo **falla** y salta alerta KO (Gmail/Telegram).
+- Opcional (no recomendado en prod): añadir `-AllowBrokenLinks` al Execute Command para saltar enlaces rotos.
+- Carpetas muy grandes = más tiempo de hash y ZIP más pesado (y Drive con el keep-1 de ese tipo).
+
+No hace falta Publish solo por crear/borrar enlaces en disco; sí **Publish** si cambias el canvas de n8n.
 
 ### Retención (local + Drive): máximo 1 por tipo
 
