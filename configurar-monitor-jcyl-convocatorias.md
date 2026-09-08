@@ -324,7 +324,24 @@ La alerta solo salta si hay **diferencias de campos** tras normalizar. Mira prim
 
 **Diagnóstico de falsos emails (08/09/2026 06:00):** los mensajes de Soporte Libre y Gestión Informática (PI) **no** traían `resumenDiff` y el «estado actual» iba **sin** prefijos `[principal]`/`[fase]`. Eso indica extractor/plantilla **antiguos** en la versión publicada (comparaban el blob entero: mismo contenido, distinto formato → falsa alerta). Con v3, esos dos casos dan `cambio: false`.
 
-Tras actualizar: pega de nuevo [`workflows/extraer-jcyl-code.js`](./workflows/extraer-jcyl-code.js) en **Extraer y comparar** y **Publish**.### Nodo 9 — Actualizar fila (Google Sheets)
+Tras actualizar: pega de nuevo [`workflows/extraer-jcyl-code.js`](./workflows/extraer-jcyl-code.js) en **Extraer y comparar** y **Publish**.
+
+### Ejemplo de snapshot saludable (columna `Ultima_Fecha_Extraida`)
+
+Formato v3: cada campo con prefijo `[principal]` o `[fase]`, sin `Incluye` suelto. Ejemplo *Técnico Soporte Libre*:
+
+```text
+[fase] Fecha segundo ejercicio: 19 de septiembre de 2026 a las 10:00 | [principal] Fecha límite: … | [principal] Fecha de publicación en BOCYL: 16 de mayo de 2025 | [principal] Fecha de publicación: … | [principal] Información adicional: A efectos de comunicación… | [principal] Plazo de presentación de solicitudes: …
+```
+
+| Señal | ¿OK? |
+|-------|------|
+| Prefijos `[principal]` / `[fase]` | Sí (extractor v3) |
+| `extractorVersion: 2026-09-08-semantic-v3` en el output del Code | Sí |
+| Texto sin prefijos + email sin `resumenDiff` | No → workflow publicado antiguo |
+| `Información adicional: Incluye` / `Incluye:` | No → junk (v3 lo filtra) |
+
+### Nodo 9 — Actualizar fila (Google Sheets)
 
 Conecta **Gmail → aquí** y **IF false → aquí**. Luego **Actualizar fila → Iterar convocatorias** (cierra el bucle).
 
