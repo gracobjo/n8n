@@ -69,8 +69,8 @@ Pensadas para alguien que **no** ha seguido la conversación de configuración. 
 | **Qué no hace** | No hace backup de bases de datos salvo otro script; no cifra; no restaura solo; no versiona borrados como “tombstones” en diff/incr (un borrado masivo puede forzar full). |
 | **Tipo de backup** | **Full + diferencial + incremental**, con **skip por hash**. Ver tabla de modos en la guía operativa. |
 | **Entradas** | `n8n-backup-origen` → `n8n-backups`; `mode` / `fullEveryDays` / `chatId`; scripts `.ps1`; Gmail + Drive + Telegram. |
-| **Salidas** | ZIP `backup_full|diff|incr_*.zip` o skip; estado en `.backup-state\`; Drive solo si `created`; email/Telegram. |
-| **Estado** | Scripts probados (full/diff/incr/skip); JSON con rama IF actualizado. |
+| **Salidas** | ZIP `backup_full|diff|incr_*.zip` o skip; estado en `.backup-state\`; Drive solo si `created`; **Gmail + Telegram** en OK / omitido / **KO**. |
+| **Estado** | Scripts + JSON con ramas Telegram OK/skip/KO y `onError` en pipeline. |
 
 ### 2.3 Vigilancia de carpeta local
 

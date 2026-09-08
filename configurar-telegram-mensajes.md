@@ -99,7 +99,7 @@ n8n usa por defecto `America/New_York` si no se configura nada.
 | Solo probar a mano | Añade **Manual Trigger** en paralelo al Schedule, o usa Test workflow |
 | Varias veces al día | Schedule → otro intervalo (horas/minutos) o varios triggers |
 | Cron fino | Schedule → Custom cron, ej. `0 9 * * 1-5` (laborables 09:00) |
-| Misma alerta que Gmail | Ya en uptime: IF caído → Gmail + Telegram en paralelo ([`sistemas-uptime-health.json`](./workflows/sistemas-uptime-health.json)) |
+| Misma alerta que Gmail | Uptime y **backup** (OK / omitido / KO) ya llevan Telegram en paralelo |
 | Resumen diario | Schedule 08:00 → leer Sheets/estado → un solo `Send Message` |
 
 ### Uptime con Telegram (incluido en el JSON)

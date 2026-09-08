@@ -168,11 +168,37 @@ Estado en disco: `n8n-backups\.backup-state\` (`state.json`, `manifest-*.json` c
 ```text
 Schedule (03:00)
   → Rutas backup (sourcePath, backupDir, mode=auto, fullEveryDays, chatId)
-  → Ejecutar backup (backup-carpeta.ps1)
-  → Parsear resultado (JSON)
+  → Ejecutar backup (backup-carpeta.ps1)  [error → Gmail/Telegram KO]
+  → Parsear resultado
+  → IF fallo → Gmail + Telegram KO
   → IF ZIP creado
        → sí: Leer ZIP → Drive → Rotación → Gmail + Telegram OK
-       → no: Gmail + Telegram “sin cambios” (sin Drive)
+            (error en Leer/Drive/Rotación → Gmail + Telegram KO)
+       → no: Gmail + Telegram “sin cambios”
+```
+
+### Telegram OK / KO / omitido
+
+| Rama | Nodos | Cuándo |
+|------|-------|--------|
+| **OK** | `Telegram backup OK` (+ Gmail) | ZIP creado, Drive y rotación OK |
+| **Omitido** | `Telegram sin cambios` (+ Gmail) | Hash igual → skip |
+| **KO** | `Telegram backup KO` (+ Gmail) | Fallo del `.ps1`, parseo, lectura ZIP, Drive o rotación |
+
+En **Rutas backup** pon `chatId` (p. ej. `328226271`). Misma credencial Telegram que el mensaje programado / uptime.
+
+Textos típicos:
+
+```text
+💾 Backup OK (full|differential|incremental)
+archivo.zip
+…
+
+💾 Backup omitido (sin cambios)
+…
+
+⚠️ Backup KO
+detalle del error
 ```
 
 ### Importar / actualizar
