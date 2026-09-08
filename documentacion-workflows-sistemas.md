@@ -68,7 +68,7 @@ Pensadas para alguien que **no** ha seguido la conversación de configuración. 
 | **Qué hace** | Hashea la carpeta origen (SHA-256). Sigue **symlinks/junctions** (USB, red, otro disco) bajo origen; omite `.lnk`. Sin cambios → **skip**. Con cambios → ZIP según **ciclo semanal Madrid** (`auto`: dom=full, lun–vie=incr, sáb=diff), sube a Drive, retención **máx. 1** full/diff/incr (local + Drive) y avisa Gmail + Telegram (OK / omitido / KO). |
 | **Qué no hace** | No hace backup de BBDD salvo otro script; no cifra; no restaura solo; no versiona borrados como tombstones en diff/incr. |
 | **Tipo de backup** | **Full + diferencial + incremental**, skip por hash, keep-one + cascada (full limpia diff/incr; diff limpia incr). |
-| **Entradas** | `n8n-backup-origen` → `n8n-backups`; `mode=auto` / `fullEveryDays` / `chatId`; scripts `.ps1`; Gmail + Drive + Telegram. |
+| **Entradas** | `n8n-backup-origen` (ficheros + **symlinks/junctions** a USB/red/disco; ver guía); `mode=auto` / `fullEveryDays` / `chatId`; scripts `.ps1`; Gmail + Drive + Telegram. |
 | **Salidas** | ZIP `backup_full|diff|incr_*.zip` o skip; estado en `.backup-state\`; Drive con ≤1 por tipo; **Gmail + Telegram**. |
 | **Estado** | Scripts + JSON con retención Drive; **tras editar el canvas → Publish** (n8n 2.x ejecuta la versión publicada). |
 
