@@ -2,7 +2,9 @@
 
 Guía para montar los 5 patrones de automatización de sistemas que propones, **adaptados a Windows** (PowerShell / CMD) y a n8n self-hosted (`npx n8n`). Incluye seguridad del nodo **Execute Command** y el nodo **SSH**.
 
-**Documentación completa** (fichas qué hace/qué no, RF/RNF, casos de uso, UML, Google Drive): [`documentacion-workflows-sistemas.md`](./documentacion-workflows-sistemas.md) — empieza por [Fichas por workflow](./documentacion-workflows-sistemas.md#2-fichas-por-workflow-lectura-rápida) si no conoces el proyecto.
+**Documentación completa** (RF/RNF, casos de uso, UML, Drive): [`documentacion-workflows-sistemas.md`](./documentacion-workflows-sistemas.md) — fichas en [§2](./documentacion-workflows-sistemas.md#2-fichas-por-workflow-lectura-rápida).
+
+**Manuales:** [`MANUAL_USUARIO_SISTEMAS.md`](./MANUAL_USUARIO_SISTEMAS.md) · [`MANUAL_DESARROLLADOR_SISTEMAS.md`](./MANUAL_DESARROLLADOR_SISTEMAS.md).
 
 **Arranque recomendado:** [`start-n8n.ps1`](./start-n8n.ps1).
 

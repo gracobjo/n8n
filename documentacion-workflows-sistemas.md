@@ -1,9 +1,11 @@
 # Documentación — Workflows de sistemas (n8n local Windows)
 
-Documentación de **usuario**, **desarrollador**, **requisitos funcionales/no funcionales**, **casos de uso** y **diagramas UML** (Mermaid) de los patrones de automatización de sistemas en n8n self-hosted.
+Documentación de **requisitos funcionales/no funcionales**, **casos de uso**, **diagramas UML** (Mermaid) y enlace a **manuales** de la suite de automatización de sistemas en n8n self-hosted.
 
 | Artefacto | Ruta |
 |-----------|------|
+| **Manual de usuario** | [`MANUAL_USUARIO_SISTEMAS.md`](./MANUAL_USUARIO_SISTEMAS.md) |
+| **Manual de desarrollador** | [`MANUAL_DESARROLLADOR_SISTEMAS.md`](./MANUAL_DESARROLLADOR_SISTEMAS.md) |
 | Guía operativa | [`configurar-workflows-sistemas.md`](./configurar-workflows-sistemas.md) |
 | Arranque recomendado | [`start-n8n.ps1`](./start-n8n.ps1) |
 | Uptime | [`workflows/sistemas-uptime-health.json`](./workflows/sistemas-uptime-health.json) |
@@ -11,6 +13,8 @@ Documentación de **usuario**, **desarrollador**, **requisitos funcionales/no fu
 | Backup + rotación | [`workflows/sistemas-backup-rotacion.json`](./workflows/sistemas-backup-rotacion.json) |
 | Script ZIP auxiliar | [`workflows/backup-carpeta.ps1`](./workflows/backup-carpeta.ps1) |
 | Script rotación ZIP | [`workflows/rotar-backups.ps1`](./workflows/rotar-backups.ps1) |
+| Retención Drive (JS) | [`workflows/seleccionar-retencion-drive.js`](./workflows/seleccionar-retencion-drive.js) |
+| Parsear resultado (JS) | [`workflows/parsear-resultado-backup-canvas.js`](./workflows/parsear-resultado-backup-canvas.js) |
 | Telegram programado | [`workflows/telegram-mensaje-programado.json`](./workflows/telegram-mensaje-programado.json) · guía [`configurar-telegram-mensajes.md`](./configurar-telegram-mensajes.md) |
 
 n8n de referencia: **2.22.6 (Self Hosted)** vía `npx n8n` / `start-n8n.ps1`.
@@ -140,10 +144,13 @@ Pensadas para alguien que **no** ha seguido la conversación de configuración. 
 | RF-01 | Comprobar cada N minutos que un endpoint HTTP responde 200 | Uptime | Probado (`localhost:5678`) |
 | RF-02 | Si el status ≠ 200 (o error de red), enviar alerta Gmail **y Telegram** | Uptime | JSON con ambos canales |
 | RF-03 | Crear ZIP de carpeta origen (full / diff / incr según modo) | Backup | Probado (scripts) |
-| RF-04 | Rotar ZIP por tipo (full/diff/incr/legado) | Backup | Probado |
-| RF-05 | Notificar Gmail (+ Telegram) resultado o skip | Backup | JSON actualizado |
+| RF-04 | Retener como máximo 1 full + 1 diff + 1 incr (local y Drive) con cascada | Backup | Probado |
+| RF-05 | Notificar Gmail (+ Telegram) resultado OK, skip o KO | Backup | JSON actualizado |
 | RF-06 | Subir ZIP a Drive solo si se creó uno nuevo | Backup | Rama IF |
 | RF-14 | Omitir ZIP/Drive si el hash de contenido no cambió | Backup | Probado |
+| RF-15 | Ciclo semanal auto (dom=full, lun–vie=incr, sáb=diff, Madrid) | Backup | Probado (script) |
+| RF-16 | Seguir symlinks/junctions bajo origen; omitir `.lnk`; fallar si destino inaccesible | Backup | Probado (script) |
+| RF-17 | Informar cambios +/~/- u ORIGEN VACIADO en avisos | Backup | Probado |
 | RF-07 | Detectar archivo nuevo en carpeta de entradas | Carpeta | Probado |
 | RF-08 | Mover el archivo a carpeta procesados y avisar por Gmail | Carpeta | Probado |
 | RF-09 | Ejecutar comandos PowerShell locales de forma controlada | Backup / Carpeta | Requiere `NODES_EXCLUDE=[]` |
@@ -151,6 +158,7 @@ Pensadas para alguien que **no** ha seguido la conversación de configuración. 
 | RF-11 | Webhook + comandos de deploy (git/docker) | Deploy | Documentado (manual) |
 | RF-12 | Auditar eventos de autenticación fallida | Logs | Documentado (manual) |
 | RF-13 | Enviar mensaje de texto a Telegram en horario programado | Telegram | JSON listo |
+| RF-18 | Publicar (Publish) la versión activa del workflow tras editar el canvas | Todos | Operativo n8n 2.x |
 
 ---
 
@@ -167,8 +175,11 @@ Pensadas para alguien que **no** ha seguido la conversación de configuración. 
 | RNF-07 | Observabilidad | Confirmación o alerta por Gmail (`gracobjo@gmail.com` en entorno de prueba) |
 | RNF-08 | Retención | Máx. 1 full + 1 diff + 1 incr (local y Drive); cascada full→limpia diff/incr, diff→limpia incr |
 | RNF-09 | Integración | Google Drive OAuth2 + **Google Drive API** habilitada en el proyecto de Google Cloud |
-| RNF-10 | Usabilidad | Fichas «qué hace / qué no hace» en §2 para onboarding sin contexto del chat |
-
+| RNF-10 | Usabilidad | Fichas «qué hace / qué no hace» en §2 + manuales de usuario/desarrollador |
+| RNF-11 | Mantenibilidad | Scripts parametrizados; parseo sin depender del nombre del nodo Set |
+| RNF-12 | Fiabilidad | OAuth Gmail/Drive renovable; fallo de notificación no debe confundirse con fallo de backup sin revisar ejecuciones |
+| RNF-13 | Rendimiento | Hash SHA-256 de árboles grandes (p. ej. Documents completo) puede alargar la ventana 03:00 |
+| RNF-14 | Documentación | UML Mermaid (§7) y guías de symlinks / Publish actualizadas con el producto |
 ### Variables de entorno persistidas (Usuario Windows)
 
 Quedan fijadas a nivel **User** (nuevas terminales / sesión tras relogin o abrir PowerShell nuevo):
@@ -201,38 +212,83 @@ npx n8n
 
 | ID | Actor | Caso de uso | Flujo principal | Resultado |
 |----|-------|-------------|-----------------|-----------|
-| CU-01 | Operador | Detectar caída de n8n/servicio local | Schedule → HTTP GET → IF ≠ 200 → Gmail | Email de alerta |
-| CU-02 | Operador | Backup diario de carpeta crítica | Schedule 03:00 → ZIP → rotación → Gmail | ZIP en `n8n-backups` + email |
-| CU-03 | Operador | Copia en la nube del ZIP | … → Read binary → Google Drive Upload | Fichero en carpeta Drive |
+| CU-01 | Operador | Detectar caída de servicio HTTP | Schedule → HTTP GET → IF ≠ OK → Gmail+Telegram | Alerta |
+| CU-02 | Operador | Backup programado de carpetas críticas | Schedule 03:00 → `.ps1` → skip o ZIP → retención → avisos | ZIP/skip + Gmail/Telegram |
+| CU-03 | Operador | Copia en la nube del ZIP nuevo | … → Read binary → Drive Upload → retención Drive | ≤1 full/diff/incr en Drive |
 | CU-04 | Usuario local | Archivo cae en bandeja de entrada | Local File Trigger → mover → Gmail | Archivo en `n8n-procesados` |
 | CU-05 | CI/Dev | Deploy tras push (manual) | Webhook → Execute Command | Contenedor/app actualizada |
 | CU-06 | Seguridad | Revisar intentos de login fallidos | Schedule → parse log → IF umbral → Gmail | Alerta crítica |
+| CU-07 | Operador | Incluir USB/red vía symlink | Crear enlace en origen → backup sigue destino | Ficheros en ZIP bajo prefijo del enlace |
+| CU-08 | Operador | Recibir mensaje Telegram programado | Schedule → Telegram | Mensaje diario |
 
-### CU-03 — detalle (Google Drive)
+### 5.1 CU-01 — Uptime (especificación)
+
+| Campo | Contenido |
+|-------|-----------|
+| **Actor** | Operador |
+| **Precondiciones** | n8n en marcha; workflow Published; URL y `chatId` en Set; credenciales Gmail/Telegram válidas |
+| **Trigger** | Schedule cada 5 minutos |
+| **Flujo principal** | 1) GET URL 2) Evaluar status 200–399 3) Si OK → fin sin aviso |
+| **Flujo alternativo** | Status error o red → Gmail + Telegram en paralelo |
+| **Postcondiciones** | Ejecución registrada; alerta solo si falló |
+| **Excepciones** | OAuth Gmail caducado → error en nodo Gmail (Telegram puede seguir OK) |
+
+### 5.2 CU-02 — Backup programado (especificación)
+
+| Campo | Contenido |
+|-------|-----------|
+| **Actor** | Operador (pasivo); sistema Schedule |
+| **Precondiciones** | Carpetas origen/backups; scripts en disco; `mode=auto`; timezone Madrid |
+| **Trigger** | Schedule ~03:00 |
+| **Flujo principal** | 1) Hashear origen (symlinks incluidos) 2) Si hash igual → skip + avisos 3) Si no → elegir modo por día 4) ZIP 5) Drive + retención 6) Avisos OK |
+| **Flujos alternativos** | Origen vaciado → full vacío + mensaje ORIGEN VACIADO; enlace roto → `status=error` + KO |
+| **Postcondiciones** | Estado `.backup-state` actualizado si `created`; ≤1 ZIP por tipo tras retención |
+| **Excepciones** | Ver tabla Drive §5.3; Gmail token inválido |
+
+### 5.3 CU-03 — Upload Drive (especificación)
 
 **Precondiciones:** Drive API habilitada; OAuth Google Drive en n8n; carpeta destino con ID conocido; nodo Drive **activado**; allow-list de archivos incluye `n8n-backups`.
 
 **Pasos:**
 
-1. Backup local genera `zipPath` / `zipPathPosix` / `fileName`.
+1. Backup local genera `zipPath` / `zipPathPosix` / `fileName` (`status=created`).
 2. Read/Write Files (Read) carga el ZIP en binary field `data`.
 3. Google Drive (File / Upload) sube `data` a Parent Drive `root` + Parent Folder By ID.
-4. Continúa rotación y email (el email puede indicar que Drive está activo).
+4. Listar ZIPs de la carpeta → seleccionar borrados (keep-1) → borrar si aplica.
+5. Rotación local + email/Telegram (incluyen texto de retención Drive).
 
-**Postcondiciones:** El ZIP existe en Drive y en disco (hasta que la rotación lo borre por antigüedad).
+**Postcondiciones:** El ZIP nuevo existe en Drive; como máximo un ZIP por tipo; el local sigue la misma política.
 
 **Excepciones:**
 
 | Error | Causa | Acción |
 |-------|--------|--------|
-| `No file(s) found` | Espacio delante de la ruta, `\` sin normalizar, o carpeta fuera del allow-list | `trim` + `/` + `N8N_RESTRICT_FILE_ACCESS_TO` |
-| 403 Drive API | Google Drive API no habilitada en el proyecto Cloud | Enable API + reconnect OAuth |
-| 404 `File not found: <folderId>` | Parent Folder apunta a carpeta **borrada** o ID incorrecto | Crear carpeta nueva; pegar ID en el nodo |
-| Skip tras vaciar Drive | Hash local intacto (`status=skipped`) | Borrar `.backup-state` o `-Force` + reejecutar workflow |
-| From list gris | Lista de drives no cargada | Usar **By ID** (`root` + folder ID) |
-| Nodo no corre | Disabled en canvas | Activate / Enable |
+| `No file(s) found` | Ruta mal formada o fuera del allow-list | `trim` + `/` + `N8N_RESTRICT_FILE_ACCESS_TO` |
+| 403 Drive API | API no habilitada | Enable API + reconnect OAuth |
+| 404 `File not found: <folderId>` | Carpeta borrada o ID incorrecto | Nueva carpeta + ID en nodo |
+| Skip tras vaciar Drive | Hash local intacto | `.backup-state` o `-Force` |
+| Nodo no corre | Disabled / no Published | Activate + Publish |
 
----
+### 5.4 CU-04 — Vigilancia carpeta (especificación)
+
+| Campo | Contenido |
+|-------|-----------|
+| **Actor** | Usuario local |
+| **Precondiciones** | `NODES_EXCLUDE=[]`; carpetas entradas/procesados; workflow Active+Published |
+| **Trigger** | Archivo **añadido** en `n8n-entradas` |
+| **Flujo principal** | Trigger → Move (PowerShell) → Gmail confirmación |
+| **Postcondiciones** | Archivo solo en `n8n-procesados` |
+| **Excepciones** | Nombre con caracteres raros; Gmail OAuth; trigger no instalado |
+
+### 5.5 CU-07 — Symlink USB/red (especificación)
+
+| Campo | Contenido |
+|-------|-----------|
+| **Actor** | Operador |
+| **Precondiciones** | Destino existe; privilegios para `SymbolicLink` |
+| **Flujo** | Crear enlace bajo origen → próximo backup con cambios incluye árbol remoto |
+| **Excepción** | Destino offline → error de escaneo (KO) salvo `-AllowBrokenLinks` |
+| **Fuera de alcance** | URLs `https://…` como Target (no soportado por Windows) |
 
 ## 6. Google Drive — configuración completa
 
@@ -333,9 +389,246 @@ sequenceDiagram
 
 ---
 
-## 7. Diagramas UML / flujos por workflow
+## 7. Diagramas UML
 
-### 7.1 Uptime
+Los diagramas usan **Mermaid** (visibles en GitHub / muchos visores Markdown). Modelan la suite de sistemas, no el núcleo completo del producto n8n open-source.
+
+### 7.1 Diagrama de casos de uso
+
+```mermaid
+flowchart LR
+  Op((Operador))
+  Us((Usuario local))
+  Dev((Dev/CI))
+  Sec((Seguridad))
+  Sys((Schedule / Trigger))
+
+  Op --> CU1[CU-01 Uptime]
+  Op --> CU2[CU-02 Backup local]
+  Op --> CU3[CU-03 Backup Drive]
+  Op --> CU7[CU-07 Symlinks origen]
+  Op --> CU8[CU-08 Telegram programado]
+  Us --> CU4[CU-04 Vigilancia carpeta]
+  Dev --> CU5[CU-05 Deploy]
+  Sec --> CU6[CU-06 Auditoría logs]
+  Sys -.-> CU1
+  Sys -.-> CU2
+  Sys -.-> CU8
+```
+
+### 7.2 Diagrama de clases (estructura estática)
+
+Entidades de dominio del kit (no son clases TypeScript del monorepo n8n; representan el modelo lógico).
+
+```mermaid
+classDiagram
+  direction TB
+  class N8nInstance {
+    +version: string
+    +timezone: string
+    +start()
+    +publish(workflow)
+  }
+  class Workflow {
+    +name: string
+    +active: bool
+    +published: bool
+  }
+  class ScheduleTrigger {
+    +cronOrInterval: string
+  }
+  class BackupJob {
+    +sourcePath: string
+    +backupDir: string
+    +mode: auto|full|diff|incr
+    +chatId: string
+    +run()
+  }
+  class BackupScript {
+    +buildManifest()
+    +followSymlinks: bool
+    +emitJson()
+  }
+  class Manifest {
+    +contentHash: string
+    +fileCount: int
+    +files: FileEntry[]
+    +linkedRoots: LinkRoot[]
+  }
+  class FileEntry {
+    +path: string
+    +sha256: string
+    +length: long
+  }
+  class LinkRoot {
+    +path: string
+    +target: string
+    +type: string
+  }
+  class RetentionPolicy {
+    +keepFull: 1
+    +keepDiff: 1
+    +keepIncr: 1
+    +applyAfterMode(mode)
+  }
+  class DriveStore {
+    +folderId: string
+    +upload(zip)
+    +deleteOld()
+  }
+  class Notifier {
+    +sendGmail()
+    +sendTelegram()
+  }
+  class UptimeCheck {
+    +url: string
+    +probe()
+  }
+  class FolderWatch {
+    +entradas: string
+    +procesados: string
+    +onFileAdd()
+  }
+
+  N8nInstance "1" --> "*" Workflow
+  Workflow --> ScheduleTrigger
+  Workflow --> BackupJob
+  Workflow --> UptimeCheck
+  Workflow --> FolderWatch
+  BackupJob --> BackupScript
+  BackupScript --> Manifest
+  Manifest --> FileEntry
+  Manifest --> LinkRoot
+  BackupJob --> RetentionPolicy
+  BackupJob --> DriveStore
+  BackupJob --> Notifier
+  UptimeCheck --> Notifier
+  FolderWatch --> Notifier
+```
+
+### 7.3 Diagrama de secuencia — backup con cambios (happy path)
+
+```mermaid
+sequenceDiagram
+  participant Sch as Schedule 03:00
+  participant Set as Rutas backup
+  participant Ps as backup-carpeta.ps1
+  participant Par as Parsear resultado
+  participant Rd as Leer ZIP
+  participant Dr as Google Drive
+  participant Ret as Retención Drive+local
+  participant N as Gmail/Telegram
+
+  Sch->>Set: trigger
+  Set->>Ps: ExecuteCommand (paths, mode, chatId)
+  Ps->>Ps: manifest + hash (symlinks)
+  alt hash igual
+    Ps-->>Par: status=skipped
+    Par->>N: sin cambios
+  else cambios
+    Ps-->>Par: status=created + zipPath
+    Par->>Rd: zipPathPosix
+    Rd->>Dr: upload ZIP
+    Dr->>Ret: listar / borrar keep-1
+    Ret->>Ret: rotar-backups.ps1 -AfterMode
+    Ret->>N: OK + textos retención
+  end
+```
+
+### 7.4 Diagrama de secuencia — uptime en fallo
+
+```mermaid
+sequenceDiagram
+  participant Sch as Schedule 5min
+  participant Http as HTTP Request
+  participant Ev as Evaluar
+  participant Gm as Gmail
+  participant Tg as Telegram
+
+  Sch->>Http: GET url
+  Http-->>Ev: status / error
+  Ev->>Ev: ok?
+  alt no ok
+    Ev->>Gm: alerta
+    Ev->>Tg: alerta
+  else ok
+    Ev-->>Sch: fin silencioso
+  end
+```
+
+### 7.5 Diagrama de actividades — decisión de modo backup (`auto`)
+
+```mermaid
+flowchart TD
+  A[Inicio Schedule] --> B[Escanear origen + hash]
+  B --> C{Hash = último?}
+  C -->|Sí| D[Skip: avisar sin ZIP]
+  C -->|No| E{¿Existe full?}
+  E -->|No| F[Modo FULL]
+  E -->|Sí| G{¿Full ≥ fullEveryDays?}
+  G -->|Sí| F
+  G -->|No| H{Día Madrid}
+  H -->|Domingo| F
+  H -->|Sábado| I[Modo DIFFERENTIAL]
+  H -->|Lun-Vie| J[Modo INCREMENTAL]
+  F --> K[Crear ZIP]
+  I --> K
+  J --> K
+  K --> L[Subir Drive]
+  L --> M[Retención keep-1]
+  M --> N[Avisar OK]
+  D --> Z[Fin]
+  N --> Z
+```
+
+### 7.6 Diagrama de actividades — vigilancia de carpeta
+
+```mermaid
+flowchart TD
+  A[Archivo añadido en n8n-entradas] --> B[Local File Trigger]
+  B --> C[Execute: mover a n8n-procesados]
+  C --> D{¿Move OK?}
+  D -->|Sí| E[Gmail confirmación]
+  D -->|No| F[Error / reintento manual]
+  E --> G[Fin]
+```
+
+### 7.7 Diagrama de despliegue
+
+```mermaid
+flowchart TB
+  subgraph pc [Nodo: PC Windows del operador]
+    PS[start-n8n.ps1]
+    N8N[Proceso n8n :5678]
+    Disk[(NTFS: origen / backups / entradas / procesados)]
+    Scripts[backup-carpeta.ps1 / rotar-backups.ps1]
+    PS --> N8N
+    N8N --> Scripts
+    Scripts --> Disk
+    N8N --> Disk
+  end
+
+  subgraph cloud [Servicios externos]
+    Gmail[Gmail API]
+    Drive[Google Drive API]
+    TG[Telegram Bot API]
+  end
+
+  subgraph optional [Opcional]
+    USB[(USB D:)]
+    NAS[(NAS UNC)]
+  end
+
+  N8N --> Gmail
+  N8N --> Drive
+  N8N --> TG
+  Disk -.symlink.-> USB
+  Disk -.symlink.-> NAS
+```
+
+### 7.8 Flujos resumidos por workflow (actividad simplificada)
+
+#### Uptime
 
 ```mermaid
 flowchart LR
@@ -346,62 +639,26 @@ flowchart LR
   I -->|sí| X[Fin]
 ```
 
-### 7.2 Backup + rotación (+ Drive)
+#### Backup
 
 ```mermaid
 flowchart LR
-  S[Schedule 03:00] --> R[Rutas backup]
+  S[Schedule 03:00] --> R[Rutas]
   R --> Z[backup-carpeta.ps1]
-  Z --> P[Parsear JSON]
-  P --> I{ZIP creado?}
-  I -->|sí| RD[Leer ZIP]
-  RD --> DR[Drive upload]
-  DR --> L[Listar ZIPs Drive]
-  L --> SEL[Seleccionar retención]
-  SEL --> DEL[Borrar antiguos si hace falta]
-  DEL --> ROT[rotar-backups.ps1 keep-1]
-  ROT --> G[Gmail+Telegram]
-  I -->|no skip| SK[Gmail+Telegram sin cambios]
+  Z --> P[Parsear]
+  P --> I{ZIP?}
+  I -->|sí| DR[Drive + retención]
+  DR --> G[Gmail+Telegram OK]
+  I -->|no| SK[Gmail+Telegram skip]
 ```
 
-### 7.3 Vigilancia de carpeta
+#### Vigilancia
 
 ```mermaid
 flowchart LR
-  T[Local File Trigger] --> M[Execute Command mover]
+  T[Local File Trigger] --> M[Mover]
   M --> G[Gmail]
 ```
-
-### 7.4 Diagrama de componentes
-
-```mermaid
-flowchart TB
-  subgraph host [PC Windows]
-    PS[start-n8n.ps1]
-    N8N[n8n process]
-    FS[(n8n-entradas / procesados / backup-origen / backups)]
-    PS --> N8N
-    N8N <--> FS
-  end
-  N8N --> Gmail[Gmail API]
-  N8N --> Drive[Google Drive API]
-  N8N --> HTTP[Endpoints HTTP locales]
-```
-
-### 7.5 Casos de uso (UML)
-
-```mermaid
-flowchart LR
-  Op((Operador))
-  Op --> CU1[CU-01 Uptime]
-  Op --> CU2[CU-02 Backup local]
-  Op --> CU3[CU-03 Backup Drive]
-  Us((Usuario local)) --> CU4[CU-04 Carpeta]
-  Dev((Dev/CI)) --> CU5[CU-05 Deploy]
-  Sec((Seguridad)) --> CU6[CU-06 Logs]
-```
-
----
 
 ## 8. Carpetas locales de trabajo
 
@@ -445,4 +702,7 @@ flowchart LR
 - Backup: hash SHA-256, skip si sin cambios, full/diff/incr; vaciar Drive no fuerza re-subida (borrar `.backup-state` o `-Force`).
 - Ciclo semanal `auto` (Madrid): dom=full, lun–vie=incr, sáb=diff; retención max 1 por tipo en local y Drive.
 - **Publish obligatorio** tras cada edición del canvas (n8n 2.x: el cron usa la versión publicada).
+- Symlinks/junctions bajo origen (USB/red/disco); omite `.lnk`; URLs https no son Target válidos.
+- Manuales: [`MANUAL_USUARIO_SISTEMAS.md`](./MANUAL_USUARIO_SISTEMAS.md), [`MANUAL_DESARROLLADOR_SISTEMAS.md`](./MANUAL_DESARROLLADOR_SISTEMAS.md).
+- UML ampliado §7: clases, CU, secuencia, actividad, despliegue.
 - JSON Drive usa placeholder `PEGAR_ID_CARPETA_GOOGLE_DRIVE` (actualizar tras recrear carpeta).
