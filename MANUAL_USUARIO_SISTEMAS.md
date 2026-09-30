@@ -128,9 +128,11 @@ Si no publicas, el Schedule de las 03:00 sigue con la versión antigua.
 |---------|-----------|
 | No llega el mail de las 03:00 | ¿n8n estaba encendido? ¿Published? ¿Gmail OAuth vigente? |
 | Skip aunque añadiste un fichero | ¿Está en `n8n-backup-origen` (o bajo un symlink), no en `Documents` suelto ni en `entradas`? |
+| **Origen con ficheros, borré Drive, ejecuto y no hay ZIP ni subida** | Es el **skip por hash local**. Vaciar Drive **no** fuerza backup. Solución: borrar `%USERPROFILE%\n8n-backups\.backup-state` y volver a ejecutar el workflow (detalle en la [guía operativa](./configurar-workflows-sistemas.md#skip-por-hash-vs-drive-vacío)). |
 | Error de enlace / path not found | USB desconectado o ruta de red caída |
 | Drive 404 | Carpeta de Drive borrada; crear otra y actualizar el ID en el nodo |
 | Local File Trigger “not installed” | Arrancar con `start-n8n.ps1` / `NODES_EXCLUDE=[]` |
+| Gmail *refresh token invalid* | Credentials → Gmail → Reconnect (el backup pudo haberse hecho igual) |
 
 ---
 

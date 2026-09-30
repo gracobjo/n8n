@@ -444,25 +444,71 @@ Solo se ejecuta la rama Drive si `status=created`. Parent Drive `root`; Parent F
 
 ### Skip por hash vs Drive vacío
 
+El workflow **no mira** si Drive está vacío. Decide con el **hash local** guardado en:
+
+`C:\Users\chuwi\n8n-backups\.backup-state\` (`state.json` + manifests).
+
+Si el contenido de `n8n-backup-origen` no cambió respecto a ese hash → `status=skipped` → **no** crea ZIP en `n8n-backups` y **no** sube a Drive, aunque hayas borrado todos los ZIPs en Google Drive (o incluso los ZIPs locales).
+
 | Situación | Comportamiento |
 |-----------|----------------|
 | Carpeta origen **sin cambios** (mismo hash) | `status=skipped` → **no** ZIP nuevo, **no** sube a Drive |
 | Origen con ficheros nuevos/modificados | ZIP + Drive + aviso con `+N ~M -D` |
-| Origen **vaciado** (borraste todo) | ZIP full vacío + aviso **ORIGEN VACIADO** (antes N → ahora 0). `Rotación deleted=…` es retención de ZIPs viejos, **no** borrados del origen |
-| Borraste ficheros/carpeta **en Drive** pero el origen local no cambió | Sigue haciendo **skip**; Drive no se “rellena” solo |
-| Quieres forzar ZIP + subida | Borra el estado local o usa `-Force` (abajo) |
+| Origen **vaciado** (borraste todo en origen) | ZIP full vacío + aviso **ORIGEN VACIADO** |
+| Borraste backups **en Drive** (o ZIPs locales) pero el origen es el mismo | Sigue haciendo **skip**; Drive **no** se rellena solo |
+| Quieres forzar ZIP + subida otra vez | Procedimiento de abajo |
 
-Forzar regeneración:
+#### Procedimiento: “Tengo ficheros en origen, borré Drive, ejecuto el workflow y no guarda ni sube nada”
+
+**Síntomas**
+
+- En origen hay ficheros (`n8n-backup-origen`).
+- En Drive borraste los ZIP antiguos (carpeta vacía o casi).
+- Al ejecutar **Sistemas — Backup local + rotación** llega aviso de **sin cambios** / `skipped`, o no aparece ZIP nuevo en `n8n-backups` ni en Drive.
+
+**Diagnóstico rápido**
 
 ```powershell
-# Opción 1 — olvidar hash/baseline local
-Remove-Item -Recurse -Force "$env:USERPROFILE\n8n-backups\.backup-state"
+# ¿Hay estado local (hash) aunque no haya ZIPs?
+Test-Path "$env:USERPROFILE\n8n-backups\.backup-state\state.json"
+Get-Content "$env:USERPROFILE\n8n-backups\.backup-state\state.json" -Raw
 
-# Opción 2 — forzar en script
+# ¿Hay ZIPs locales?
+Get-ChildItem "$env:USERPROFILE\n8n-backups\*.zip" -ErrorAction SilentlyContinue
+```
+
+Si existe `state.json` con `lastContentHash` y el origen no ha cambiado → el skip es **esperado**.
+
+**Solución (recomendada)**
+
+1. Olvidar el hash/baseline local:
+
+```powershell
+Remove-Item -Recurse -Force "$env:USERPROFILE\n8n-backups\.backup-state"
+```
+
+2. En n8n: **Test workflow** / Execute de **Sistemas — Backup local + rotación** (workflow **Published**).
+3. Debe crear un **full** (no hay full en estado), guardar el ZIP en `n8n-backups` y subirlo a Drive.
+4. Si el árbol es grande (cientos/miles de ficheros o symlink USB), espera varios minutos.
+
+**Alternativa** (sin borrar el estado; solo fuerza un run del script):
+
+```powershell
 powershell -NoProfile -File C:\Users\chuwi\Documents\n8n\workflows\backup-carpeta.ps1 -Mode full -Force
 ```
 
-Luego **Test workflow** en n8n (para que también pase por Drive).
+Eso genera el ZIP en disco; para **Drive** hace falta que el workflow n8n ejecute la rama upload (mejor usar la opción 1 + Test workflow completo).
+
+**No confundir**
+
+| Acción | ¿Fuerza re-subida a Drive? |
+|--------|----------------------------|
+| Borrar ZIPs en Google Drive | **No** |
+| Borrar ZIPs en `n8n-backups` dejando `.backup-state` | **No** |
+| Borrar `.backup-state` o `-Force` + ejecutar workflow | **Sí** |
+| Solo Publish sin cambiar origen/estado | No cambia el skip |
+
+Si tras borrar `.backup-state` sigue sin ZIP: comprueba folder ID de Drive, credencial OAuth, rama IF ZIP / errores en la ejecución, y que no estés en un canvas antiguo sin Publish.
 
 ### Error Drive 404 `File not found: <folderId>`
 

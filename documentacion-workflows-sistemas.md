@@ -682,7 +682,7 @@ flowchart LR
 | Read binary ZIP | OK tras allow-list + path sin espacio |
 | Drive en cadena completa | Cable Parsear → Leer → Drive → Rotacion; email con `open?id=` |
 | Drive 404 folderId | Carpeta borrada; crear nueva y actualizar Parent Folder By ID |
-| Skip tras vaciar Drive | Esperado; borrar `.backup-state` o `-Force` |
+| Skip tras vaciar Drive | Esperado (hash local); borrar `.backup-state` o `-Force` + **Test workflow** completo (ZIP local + Drive) |
 
 ---
 
