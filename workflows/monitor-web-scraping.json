@@ -354,6 +354,11 @@
             "node": "Gmail alerta",
             "type": "main",
             "index": 0
+          },
+          {
+            "node": "Actualizar fila",
+            "type": "main",
+            "index": 0
           }
         ],
         [
@@ -367,13 +372,7 @@
     },
     "Gmail alerta": {
       "main": [
-        [
-          {
-            "node": "Actualizar fila",
-            "type": "main",
-            "index": 0
-          }
-        ]
+        []
       ]
     },
     "Actualizar fila": {

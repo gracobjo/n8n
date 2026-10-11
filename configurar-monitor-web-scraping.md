@@ -305,6 +305,7 @@ Intervalo por defecto: **cada 1 hora**. Si tienes muchas filas o `Render_JS=SI`,
 | Puppeteer: Could not find Chrome       | Instalar chrome@versión del error; Executable path o junction en `.cache\puppeteer` |
 | Puppeteer: Invalid URL: =https://…     | Quitar `=` fijo; Expression solo `{{ $json.URL }}`; Operation en Fixed |
 | Extraer CSS: No property named "data"  | Con Puppeteer pon JSON Property = `body` |
+| Hoja no actualiza Ultimo_Valor         | 1) Extraer CSS falló (`data` vs `body`). 2) Actualizar solo tras Gmail y Gmail falló → cablea Actualizar en paralelo. 3) `row_number` fijo en 0 o Map Automatically. 4) Mira si el nodo **Actualizar fila** aparece en verde en la ejecución |
 | Puppeteer: 403 en ASUS                 | Antibot de la tienda; usar PCC u otra fuente, o ScraperAPI premium/trial |
 | HTML vacío o bloqueo                   | Pon `Render_JS=SI`; si sigue, `premium=true` |
 | `valor` vacío                          | CSS incorrecto; prueba el selector en DevTools → Inspect                                      |
