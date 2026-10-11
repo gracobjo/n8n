@@ -74,6 +74,20 @@ ScraperAPI devuelve el HTML en **`data`**. Puppeteer `getPageContent` lo pone en
 | CSS Selector | `={{ $('Iterar URLs').item.json.CSS_Selector }}` | igual |
 | Key / Return | `valor` / Text | igual |
 
+Si dejas `data` con Puppeteer, **Extraer con CSS falla** y el flujo **no llega** a Actualizar fila → la hoja no cambia.
+
+### Actualizar Ultimo_Valor (cableado)
+
+**Actualizar fila** debe correr **siempre** tras Evaluar (haya alerta o no), **en paralelo** a Gmail — no solo *después* de Gmail.
+
+Si Gmail falla (OAuth) y Actualizar solo está enlazado a la salida de Gmail, **la hoja no se actualiza** aunque Puppeteer haya ido bien.
+
+```text
+IF alerta
+  → true:  Gmail alerta  +  Actualizar fila   (paralelo)
+  → false: Actualizar fila
+```
+
 ### Límites vistos en pruebas
 
 | Sitio | ScraperAPI free | Puppeteer local |
@@ -97,8 +111,8 @@ Schedule (1 h)
       → ScraperAPI  -o-  Puppeteer (Get Page Content)
       → HTML (CSS; JSON property data|body)
       → Evaluar alerta (contains / smaller_than / changed…)
-      → IF alerta → Gmail
-      → Actualizar Ultimo_Valor
+      → IF alerta → Gmail (en paralelo) + Actualizar Ultimo_Valor
+      → si no alerta → Actualizar Ultimo_Valor
 ```
 
 Cada fila de la hoja es un sitio distinto: URL, selector CSS y regla de alerta propios.
